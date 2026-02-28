@@ -1,0 +1,315 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model answers {
+  id          BigInt    @id @default(autoincrement())
+  question_id BigInt
+  text        String
+  is_correct  Boolean   @default(false)
+  questions   questions @relation(fields: [question_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([question_id], map: "idx_answers_question")
+}
+
+model competencies {
+  id                    BigInt                  @id @default(autoincrement())
+  code                  String                  @unique
+  title                 String
+  description           String?
+  topic_competencies    topic_competencies[]
+  user_competency_state user_competency_state[]
+}
+
+model lesson_blocks {
+  id            BigInt  @id @default(autoincrement())
+  lesson_id     BigInt
+  block_type    String
+  block_content Json    @default("{}")
+  order_index   Int     @default(0)
+  lessons       lessons @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model lessons {
+  id                   BigInt                 @id @default(autoincrement())
+  topic_id             BigInt
+  title                String
+  summary              String?
+  content              String
+  difficulty           Int                    @default(1) @db.SmallInt
+  estimated_minutes    Int                    @default(5) @db.SmallInt
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  lesson_blocks        lesson_blocks[]
+  topics               topics                 @relation(fields: [topic_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  quizzes              quizzes[]
+  user_lesson_progress user_lesson_progress[]
+
+  @@index([topic_id], map: "idx_lessons_topic")
+}
+
+model questions {
+  id           BigInt         @id @default(autoincrement())
+  quiz_id      BigInt
+  text         String
+  q_type       String         @default("single")
+  order_index  Int            @default(0)
+  answers      answers[]
+  quizzes      quizzes        @relation(fields: [quiz_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_answers user_answers[]
+
+  @@index([quiz_id], map: "idx_questions_quiz")
+}
+
+model quizzes {
+  id                 BigInt               @id @default(autoincrement())
+  lesson_id          BigInt
+  title              String
+  description        String?
+  questions          questions[]
+  lessons            lessons              @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_quiz_attempts user_quiz_attempts[]
+
+  @@index([lesson_id], map: "idx_quizzes_lesson")
+}
+
+model refresh_tokens {
+  id                   BigInt           @id @default(autoincrement())
+  user_id              BigInt
+  token_hash           String
+  expires_at           DateTime         @db.Timestamptz(6)
+  created_at           DateTime         @default(now()) @db.Timestamptz(6)
+  revoked_at           DateTime?        @db.Timestamptz(6)
+  replaced_by          BigInt?
+  user_agent           String?
+  ip                   String?
+  refresh_tokens       refresh_tokens?  @relation("refresh_tokensTorefresh_tokens", fields: [replaced_by], references: [id], onUpdate: NoAction)
+  other_refresh_tokens refresh_tokens[] @relation("refresh_tokensTorefresh_tokens")
+  users                users            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expires_at], map: "idx_refresh_tokens_exp")
+  @@index([token_hash], map: "idx_refresh_tokens_hash")
+  @@index([user_id], map: "idx_refresh_tokens_user")
+}
+
+model scenario_choices {
+  id                                                           BigInt                  @id @default(autoincrement())
+  step_id                                                      BigInt
+  text                                                         String
+  next_step_id                                                 BigInt?
+  score_delta                                                  Decimal                 @default(0) @db.Decimal(6, 2)
+  explanation_text                                             String?
+  scenario_steps_scenario_choices_next_step_idToscenario_steps scenario_steps?         @relation("scenario_choices_next_step_idToscenario_steps", fields: [next_step_id], references: [id], onUpdate: NoAction)
+  scenario_steps_scenario_choices_step_idToscenario_steps      scenario_steps          @relation("scenario_choices_step_idToscenario_steps", fields: [step_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_scenario_actions                                        user_scenario_actions[]
+
+  @@index([step_id], map: "idx_choices_step")
+}
+
+model scenario_steps {
+  id                                                             BigInt                  @id @default(autoincrement())
+  scenario_id                                                    BigInt
+  step_index                                                     Int
+  text                                                           String
+  scenario_choices_scenario_choices_next_step_idToscenario_steps scenario_choices[]      @relation("scenario_choices_next_step_idToscenario_steps")
+  scenario_choices_scenario_choices_step_idToscenario_steps      scenario_choices[]      @relation("scenario_choices_step_idToscenario_steps")
+  scenarios                                                      scenarios               @relation(fields: [scenario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_scenario_actions                                          user_scenario_actions[]
+
+  @@unique([scenario_id, step_index])
+  @@index([scenario_id], map: "idx_steps_scenario")
+}
+
+model scenarios {
+  id                 BigInt               @id @default(autoincrement())
+  topic_id           BigInt?
+  title              String
+  description        String?
+  difficulty         Int                  @default(1) @db.SmallInt
+  scenario_steps     scenario_steps[]
+  topics             topics?              @relation(fields: [topic_id], references: [id], onUpdate: NoAction)
+  user_scenario_runs user_scenario_runs[]
+
+  @@index([topic_id], map: "idx_scenarios_topic")
+}
+
+model tool_runs {
+  id           BigInt   @id @default(autoincrement())
+  user_id      BigInt
+  tool_id      BigInt
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  inputs_json  Json     @default("{}")
+  outputs_json Json     @default("{}")
+  tools        tools    @relation(fields: [tool_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tool_id], map: "idx_tool_runs_tool")
+  @@index([user_id], map: "idx_tool_runs_user")
+}
+
+model tools {
+  id          BigInt      @id @default(autoincrement())
+  code        String      @unique
+  title       String
+  description String?
+  tool_runs   tool_runs[]
+}
+
+model topic_competencies {
+  topic_id      BigInt
+  competency_id BigInt
+  weight        Decimal      @default(1.0) @db.Decimal(6, 3)
+  competencies  competencies @relation(fields: [competency_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  topics        topics       @relation(fields: [topic_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([topic_id, competency_id])
+}
+
+model topics {
+  id                 BigInt               @id @default(autoincrement())
+  title              String
+  description        String?
+  order_index        Int                  @default(0)
+  lessons            lessons[]
+  scenarios          scenarios[]
+  topic_competencies topic_competencies[]
+}
+
+model user_answers {
+  id                  BigInt             @id @default(autoincrement())
+  attempt_id          BigInt
+  question_id         BigInt
+  selected_answer_ids Json               @default("[]")
+  is_correct          Boolean?
+  user_quiz_attempts  user_quiz_attempts @relation(fields: [attempt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  questions           questions          @relation(fields: [question_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([attempt_id, question_id])
+}
+
+model user_competency_state {
+  user_id       BigInt
+  competency_id BigInt
+  level         Int          @default(0) @db.SmallInt
+  source        String?
+  updated_at    DateTime     @default(now()) @db.Timestamptz(6)
+  competencies  competencies @relation(fields: [competency_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users         users        @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, competency_id])
+}
+
+model user_events {
+  id          BigInt   @id @default(autoincrement())
+  user_id     BigInt
+  event_type  String
+  entity_type String
+  entity_id   BigInt?
+  meta_json   Json     @default("{}")
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  users       users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([event_type, created_at], map: "idx_events_type_time")
+  @@index([user_id, created_at], map: "idx_events_user_time")
+}
+
+model user_lesson_progress {
+  id               BigInt    @id @default(autoincrement())
+  user_id          BigInt
+  lesson_id        BigInt
+  status           String    @default("not_started")
+  progress_percent Int       @default(0) @db.SmallInt
+  last_opened_at   DateTime? @db.Timestamptz(6)
+  completed_at     DateTime? @db.Timestamptz(6)
+  lessons          lessons   @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users            users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, lesson_id])
+  @@index([lesson_id], map: "idx_progress_lesson")
+  @@index([user_id], map: "idx_progress_user")
+}
+
+model user_profile {
+  user_id        BigInt   @id
+  display_name   String?
+  goal           String?
+  experience_lvl Int?     @db.SmallInt
+  base_params    Json     @default("{}")
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+  users          users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model user_quiz_attempts {
+  id           BigInt         @id @default(autoincrement())
+  user_id      BigInt
+  quiz_id      BigInt
+  started_at   DateTime       @default(now()) @db.Timestamptz(6)
+  finished_at  DateTime?      @db.Timestamptz(6)
+  score        Decimal        @default(0) @db.Decimal(6, 2)
+  max_score    Decimal        @default(0) @db.Decimal(6, 2)
+  user_answers user_answers[]
+  quizzes      quizzes        @relation(fields: [quiz_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([quiz_id], map: "idx_attempts_quiz")
+  @@index([user_id], map: "idx_attempts_user")
+}
+
+model user_scenario_actions {
+  id                 BigInt             @id @default(autoincrement())
+  run_id             BigInt
+  step_id            BigInt
+  choice_id          BigInt
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  scenario_choices   scenario_choices   @relation(fields: [choice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_scenario_runs user_scenario_runs @relation(fields: [run_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  scenario_steps     scenario_steps     @relation(fields: [step_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([run_id, step_id])
+  @@index([run_id], map: "idx_actions_run")
+}
+
+model user_scenario_runs {
+  id                    BigInt                  @id @default(autoincrement())
+  user_id               BigInt
+  scenario_id           BigInt
+  started_at            DateTime                @default(now()) @db.Timestamptz(6)
+  finished_at           DateTime?               @db.Timestamptz(6)
+  total_score           Decimal                 @default(0) @db.Decimal(8, 2)
+  status                String                  @default("in_progress")
+  user_scenario_actions user_scenario_actions[]
+  scenarios             scenarios               @relation(fields: [scenario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                 users                   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_runs_user")
+}
+
+model user_settings {
+  user_id               BigInt   @id
+  ui_lang               String   @default("ru")
+  theme                 String   @default("light")
+  notifications_enabled Boolean  @default(true)
+  personalization_level Int      @default(1) @db.SmallInt
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+  users                 users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model users {
+  id                    BigInt                  @id @default(autoincrement())
+  email                 String                  @unique
+  password_hash         String
+  role                  String                  @default("user")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  refresh_tokens        refresh_tokens[]
+  tool_runs             tool_runs[]
+  user_competency_state user_competency_state[]
+  user_events           user_events[]
+  user_lesson_progress  user_lesson_progress[]
+  user_profile          user_profile?
+  user_quiz_attempts    user_quiz_attempts[]
+  user_scenario_runs    user_scenario_runs[]
+  user_settings         user_settings?
+}
