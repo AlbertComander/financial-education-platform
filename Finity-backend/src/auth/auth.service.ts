@@ -98,6 +98,29 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.users.create(email, passwordHash);
 
+    await this.prisma.$transaction([
+      this.prisma.user_profile.create({
+        data: {
+          user_id: user.id,
+          display_name: null,
+          goal: null,
+          experience_lvl: 0,
+          base_params: {},
+          updated_at: new Date(),
+        },
+      }),
+      this.prisma.user_settings.create({
+        data: {
+          user_id: user.id,
+          ui_lang: 'ru',
+          theme: 'light',
+          notifications_enabled: true,
+          personalization_level: 1,
+          updated_at: new Date(),
+        },
+      }),
+    ]);
+
     const payload: JwtPayload = {
       sub: user.id.toString(),
       email: user.email,
