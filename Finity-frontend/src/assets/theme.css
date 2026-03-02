@@ -1,0 +1,42 @@
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --muted: #e2e8f0;
+  --muted-foreground: #475569;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --border: #dbe3ef;
+  --primary: #0f172a;
+  --primary-foreground: #f8fafc;
+  --ring: #1d4ed8;
+  --danger: #dc2626;
+  --success: #15803d;
+  --radius: 12px;
+  --sidebar: #ffffff;
+  --sidebar-border: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at 20% 20%, #ffffff 0%, #f8fafc 45%, #eff6ff 100%);
+  color: var(--foreground);
+  font-family:
+    'IBM Plex Sans',
+    'Segoe UI',
+    sans-serif;
+}
+
+a {
+  color: inherit;
+}
