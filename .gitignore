@@ -2,5 +2,6 @@
 **/dist/
 **/.env
 **/.env.*
+!**/.env.example
 **/.idea/
 **/.vscode/
