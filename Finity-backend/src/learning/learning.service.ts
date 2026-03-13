@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { LearningErrors } from '../common/errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitQuizAttemptDto } from './dto/submit-quiz-attempt.dto';
 import { CreateTopicDto, UpdateTopicDto } from './dto/admin/topic.dto';
@@ -34,7 +35,7 @@ export class LearningService {
     try {
       return BigInt(value);
     } catch {
-      throw new BadRequestException(`${fieldName} must be a valid integer id`);
+      throw new BadRequestException(LearningErrors.invalidId(fieldName));
     }
   }
 
@@ -87,7 +88,7 @@ export class LearningService {
       },
     });
 
-    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
     return lesson;
   }
 
@@ -138,7 +139,7 @@ export class LearningService {
       },
     });
 
-    if (!quiz) throw new NotFoundException('Quiz not found');
+    if (!quiz) throw new NotFoundException(LearningErrors.quizNotFound);
     return quiz;
   }
 
@@ -146,7 +147,7 @@ export class LearningService {
     if (!value) return 'single';
     if (!QUESTION_TYPES.includes(value as QuestionType)) {
       throw new BadRequestException(
-        `qType must be one of: ${QUESTION_TYPES.join(', ')}`,
+        LearningErrors.invalidQuestionType(QUESTION_TYPES),
       );
     }
     return value as QuestionType;
@@ -157,22 +158,18 @@ export class LearningService {
     answers: Array<{ isCorrect: boolean }>,
   ) {
     if (answers.length < 2) {
-      throw new BadRequestException(
-        'Question must have at least 2 answer options',
-      );
+      throw new BadRequestException(LearningErrors.questionMinAnswers);
     }
 
     const correctCount = answers.filter((answer) => answer.isCorrect).length;
 
     if (correctCount < 1) {
-      throw new BadRequestException(
-        'Question must contain at least one correct answer',
-      );
+      throw new BadRequestException(LearningErrors.questionMinOneCorrect);
     }
 
     if (qType === 'single' && correctCount !== 1) {
       throw new BadRequestException(
-        'Single-choice question must have exactly one correct answer',
+        LearningErrors.singleQuestionExactOneCorrect,
       );
     }
   }
@@ -222,7 +219,7 @@ export class LearningService {
       where: { id: topicId },
       select: { id: true },
     });
-    if (!existing) throw new NotFoundException('Topic not found');
+    if (!existing) throw new NotFoundException(LearningErrors.topicNotFound);
 
     return this.prisma.topics.update({
       where: { id: topicId },
@@ -231,15 +228,20 @@ export class LearningService {
         ...(dto.description !== undefined
           ? { description: dto.description }
           : {}),
-        ...(dto.orderIndex !== undefined ? { order_index: dto.orderIndex } : {}),
+        ...(dto.orderIndex !== undefined
+          ? { order_index: dto.orderIndex }
+          : {}),
       },
     });
   }
 
   async deleteTopic(topicIdRaw: string) {
     const topicId = this.parseBigInt(topicIdRaw, 'topicId');
-    const result = await this.prisma.topics.deleteMany({ where: { id: topicId } });
-    if (result.count === 0) throw new NotFoundException('Topic not found');
+    const result = await this.prisma.topics.deleteMany({
+      where: { id: topicId },
+    });
+    if (result.count === 0)
+      throw new NotFoundException(LearningErrors.topicNotFound);
     return { deleted: result.count };
   }
 
@@ -250,7 +252,7 @@ export class LearningService {
       where: { id: topicId },
       select: { id: true },
     });
-    if (!topic) throw new NotFoundException('Topic not found');
+    if (!topic) throw new NotFoundException(LearningErrors.topicNotFound);
 
     return this.prisma.lessons.create({
       data: {
@@ -273,7 +275,7 @@ export class LearningService {
       where: { id: lessonId },
       select: { id: true },
     });
-    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
 
     return this.prisma.lessons.update({
       where: { id: lessonId },
@@ -294,7 +296,8 @@ export class LearningService {
     const result = await this.prisma.lessons.deleteMany({
       where: { id: lessonId },
     });
-    if (result.count === 0) throw new NotFoundException('Lesson not found');
+    if (result.count === 0)
+      throw new NotFoundException(LearningErrors.lessonNotFound);
     return { deleted: result.count };
   }
 
@@ -305,7 +308,7 @@ export class LearningService {
       where: { id: lessonId },
       select: { id: true },
     });
-    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
 
     return this.prisma.quizzes.create({
       data: {
@@ -326,7 +329,7 @@ export class LearningService {
       where: { id: lessonId },
       select: { id: true },
     });
-    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
 
     for (const question of dto.questions) {
       const qType = this.normalizeQuestionType(question.qType);
@@ -395,7 +398,7 @@ export class LearningService {
       });
     });
 
-    if (!createdQuiz) throw new NotFoundException('Quiz not found');
+    if (!createdQuiz) throw new NotFoundException(LearningErrors.quizNotFound);
     return createdQuiz;
   }
 
@@ -429,7 +432,7 @@ export class LearningService {
       },
     });
 
-    if (!quiz) throw new NotFoundException('Quiz not found');
+    if (!quiz) throw new NotFoundException(LearningErrors.quizNotFound);
     return quiz;
   }
 
@@ -440,7 +443,7 @@ export class LearningService {
       where: { id: quizId },
       select: { id: true },
     });
-    if (!quiz) throw new NotFoundException('Quiz not found');
+    if (!quiz) throw new NotFoundException(LearningErrors.quizNotFound);
 
     return this.prisma.quizzes.update({
       where: { id: quizId },
@@ -455,8 +458,11 @@ export class LearningService {
 
   async deleteQuiz(quizIdRaw: string) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
-    const result = await this.prisma.quizzes.deleteMany({ where: { id: quizId } });
-    if (result.count === 0) throw new NotFoundException('Quiz not found');
+    const result = await this.prisma.quizzes.deleteMany({
+      where: { id: quizId },
+    });
+    if (result.count === 0)
+      throw new NotFoundException(LearningErrors.quizNotFound);
     return { deleted: result.count };
   }
 
@@ -469,7 +475,7 @@ export class LearningService {
       where: { id: quizId },
       select: { id: true },
     });
-    if (!quiz) throw new NotFoundException('Quiz not found');
+    if (!quiz) throw new NotFoundException(LearningErrors.quizNotFound);
 
     const createdQuestion = await this.prisma.$transaction(async (tx) => {
       let orderIndex = dto.orderIndex;
@@ -521,7 +527,8 @@ export class LearningService {
       });
     });
 
-    if (!createdQuestion) throw new NotFoundException('Question not found');
+    if (!createdQuestion)
+      throw new NotFoundException(LearningErrors.questionNotFound);
     return createdQuestion;
   }
 
@@ -540,7 +547,7 @@ export class LearningService {
         },
       },
     });
-    if (!question) throw new NotFoundException('Question not found');
+    if (!question) throw new NotFoundException(LearningErrors.questionNotFound);
 
     const nextType = this.normalizeQuestionType(dto.qType ?? question.q_type);
 
@@ -548,7 +555,7 @@ export class LearningService {
       const correctCount = question.answers.filter((a) => a.is_correct).length;
       if (correctCount !== 1) {
         throw new BadRequestException(
-          'Switch to single-choice requires exactly one correct answer',
+          LearningErrors.switchToSingleRequiresOneCorrect,
         );
       }
     }
@@ -558,7 +565,9 @@ export class LearningService {
       data: {
         ...(dto.text !== undefined ? { text: dto.text } : {}),
         ...(dto.qType !== undefined ? { q_type: dto.qType } : {}),
-        ...(dto.orderIndex !== undefined ? { order_index: dto.orderIndex } : {}),
+        ...(dto.orderIndex !== undefined
+          ? { order_index: dto.orderIndex }
+          : {}),
       },
     });
   }
@@ -568,7 +577,8 @@ export class LearningService {
     const result = await this.prisma.questions.deleteMany({
       where: { id: questionId },
     });
-    if (result.count === 0) throw new NotFoundException('Question not found');
+    if (result.count === 0)
+      throw new NotFoundException(LearningErrors.questionNotFound);
     return { deleted: result.count };
   }
 
@@ -588,7 +598,7 @@ export class LearningService {
         },
       },
     });
-    if (!question) throw new NotFoundException('Question not found');
+    if (!question) throw new NotFoundException(LearningErrors.questionNotFound);
 
     const isCorrect = dto.isCorrect ?? false;
 
@@ -598,7 +608,7 @@ export class LearningService {
       question.answers.some((answer) => answer.is_correct)
     ) {
       throw new BadRequestException(
-        'Single-choice question can only have one correct answer',
+        LearningErrors.singleQuestionOnlyOneCorrect,
       );
     }
 
@@ -633,7 +643,7 @@ export class LearningService {
         },
       },
     });
-    if (!answer) throw new NotFoundException('Answer not found');
+    if (!answer) throw new NotFoundException(LearningErrors.answerNotFound);
 
     const nextIsCorrect = dto.isCorrect ?? answer.is_correct;
     const otherAnswers = answer.questions.answers.filter(
@@ -646,7 +656,7 @@ export class LearningService {
       otherAnswers.some((item) => item.is_correct)
     ) {
       throw new BadRequestException(
-        'Single-choice question can only have one correct answer',
+        LearningErrors.singleQuestionOnlyOneCorrect,
       );
     }
 
@@ -655,9 +665,7 @@ export class LearningService {
       !nextIsCorrect &&
       !otherAnswers.some((item) => item.is_correct)
     ) {
-      throw new BadRequestException(
-        'Question must keep at least one correct answer',
-      );
+      throw new BadRequestException(LearningErrors.questionMustKeepOneCorrect);
     }
 
     return this.prisma.answers.update({
@@ -689,22 +697,22 @@ export class LearningService {
         },
       },
     });
-    if (!answer) throw new NotFoundException('Answer not found');
+    if (!answer) throw new NotFoundException(LearningErrors.answerNotFound);
 
     const allAnswers = answer.questions.answers;
     const remaining = allAnswers.filter((item) => item.id !== answer.id);
 
     if (allAnswers.length <= 2) {
-      throw new BadRequestException('Question must have at least 2 answers');
+      throw new BadRequestException(LearningErrors.questionMustKeepTwoAnswers);
     }
 
     if (answer.is_correct && !remaining.some((item) => item.is_correct)) {
-      throw new BadRequestException(
-        'Question must keep at least one correct answer',
-      );
+      throw new BadRequestException(LearningErrors.questionMustKeepOneCorrect);
     }
 
-    const result = await this.prisma.answers.deleteMany({ where: { id: answerId } });
+    const result = await this.prisma.answers.deleteMany({
+      where: { id: answerId },
+    });
     return { deleted: result.count };
   }
 
@@ -721,7 +729,7 @@ export class LearningService {
       const questionId = this.parseBigInt(answer.questionId, 'questionId');
       if (submittedMap.has(questionId)) {
         throw new BadRequestException(
-          `Duplicate answers for question ${answer.questionId}`,
+          LearningErrors.duplicateAnswersForQuestion(answer.questionId),
         );
       }
       submittedMap.set(questionId, [...new Set(answer.selectedAnswerIds)]);
@@ -733,7 +741,7 @@ export class LearningService {
     for (const questionId of submittedMap.keys()) {
       if (!quizQuestionIds.has(questionId.toString())) {
         throw new BadRequestException(
-          `Question ${questionId.toString()} does not belong to quiz`,
+          LearningErrors.questionNotInQuiz(questionId.toString()),
         );
       }
     }
@@ -749,7 +757,10 @@ export class LearningService {
       for (const selectedId of selectedAnswerIds) {
         if (!answerIdsInQuestion.has(selectedId)) {
           throw new BadRequestException(
-            `Answer ${selectedId} does not belong to question ${question.id.toString()}`,
+            LearningErrors.answerNotInQuestion(
+              selectedId,
+              question.id.toString(),
+            ),
           );
         }
       }
@@ -801,7 +812,7 @@ export class LearningService {
       },
     });
 
-    if (!quiz) throw new NotFoundException('Quiz not found');
+    if (!quiz) throw new NotFoundException(LearningErrors.quizNotFound);
 
     const { evaluated, score, maxScore } = this.evaluateAnswers({
       submitted: dto,

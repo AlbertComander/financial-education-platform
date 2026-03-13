@@ -10,6 +10,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { LearningErrors } from '../common/errors';
 import { LearningService } from './learning.service';
 import { SubmitQuizAttemptDto } from './dto/submit-quiz-attempt.dto';
 
@@ -20,7 +21,7 @@ export class LearningController {
 
   private getUserId(req: Request): bigint {
     const sub = (req.user as { sub?: string })?.sub;
-    if (!sub) throw new UnauthorizedException();
+    if (!sub) throw new UnauthorizedException(LearningErrors.unauthorized);
     return BigInt(sub);
   }
 
