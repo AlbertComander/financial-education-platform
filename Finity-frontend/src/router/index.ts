@@ -5,6 +5,11 @@ const LoginView = () => import('@/views/LoginView.vue')
 const RegisterView = () => import('@/views/RegisterView.vue')
 const DashboardView = () => import('@/views/DashboardView.vue')
 const ProfileView = () => import('@/views/ProfileView.vue')
+const LearningView = () => import('@/views/LearningView.vue')
+const TopicView = () => import('@/views/TopicView.vue')
+const LessonView = () => import('@/views/LessonView.vue')
+const LessonTestResultView = () => import('@/views/LessonTestResultView.vue')
+const QuizView = () => import('@/views/QuizView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -35,6 +40,36 @@ const router = createRouter({
       path: '/profile',
       name: 'profile',
       component: ProfileView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/learning',
+      name: 'learning',
+      component: LearningView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/learning/topics/:topicId',
+      name: 'topic',
+      component: TopicView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/learning/lessons/:lessonId',
+      name: 'lesson',
+      component: LessonView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/learning/lessons/:lessonId/test-result',
+      name: 'lesson-test-result',
+      component: LessonTestResultView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/learning/quizzes/:quizId',
+      name: 'quiz',
+      component: QuizView,
       meta: { requiresAuth: true },
     },
   ],

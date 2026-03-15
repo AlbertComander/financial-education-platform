@@ -1,76 +1,126 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
+const router = useRouter()
 const auth = useAuthStore()
 const roleLabel = computed(() => auth.user?.role ?? 'user')
 </script>
 
 <template>
-  <section class="dashboard">
-    <Card class="dashboard__card dashboard__card--main">
-      <h1 class="dashboard__title">Личный кабинет</h1>
-      <p class="dashboard__subtitle">Вы авторизованы в системе и можете продолжить обучение.</p>
-
-      <div class="dashboard__meta">
-        <div class="dashboard__meta-row"><strong>Email:</strong> {{ auth.user?.email }}</div>
-        <div class="dashboard__meta-row"><strong>Роль:</strong> {{ roleLabel }}</div>
-        <div class="dashboard__meta-row"><strong>User ID:</strong> {{ auth.user?.sub }}</div>
-      </div>
-    </Card>
-
-    <Card class="dashboard__card dashboard__card--next">
-      <h2 class="dashboard__heading">Следующий этап</h2>
-      <p class="dashboard__text">
-        Здесь можно добавить персональную образовательную траекторию: темы финансовой грамотности,
-        прогресс по урокам, результаты квизов и интерактивные сценарии принятия решений.
+  <section class="dashboard-page">
+    <Card class="dashboard-page__hero">
+      <p class="dashboard-page__eyebrow">Кабинет пользователя</p>
+      <h1 class="dashboard-page__title">Добро пожаловать в Finity</h1>
+      <p class="dashboard-page__subtitle">
+        Продолжайте обучение по финансовой грамотности и отслеживайте свои результаты по темам и тестам.
       </p>
+
+      <div class="dashboard-page__meta-grid">
+        <div class="dashboard-page__meta-row">
+          <span class="dashboard-page__meta-label">Email</span>
+          <span class="dashboard-page__meta-value">{{ auth.user?.email ?? '—' }}</span>
+        </div>
+        <div class="dashboard-page__meta-row">
+          <span class="dashboard-page__meta-label">Роль</span>
+          <span class="dashboard-page__meta-value">{{ roleLabel }}</span>
+        </div>
+        <div class="dashboard-page__meta-row">
+          <span class="dashboard-page__meta-label">User ID</span>
+          <span class="dashboard-page__meta-value">{{ auth.user?.sub ?? '—' }}</span>
+        </div>
+      </div>
+
+      <div class="dashboard-page__actions">
+        <Button @click="router.push({ name: 'learning' })">Перейти к обучению</Button>
+        <Button variant="outline" @click="router.push({ name: 'profile' })">Настроить профиль</Button>
+      </div>
     </Card>
   </section>
 </template>
 
 <style scoped>
-.dashboard {
+.dashboard-page {
+  display: grid;
+}
+
+.dashboard-page__hero {
   display: grid;
   gap: 16px;
+  padding: 24px 24px 26px;
+  border-radius: 16px;
 }
 
-.dashboard__card {
-  padding: 24px;
-}
-
-.dashboard__title {
-  margin: 0 0 8px;
-  font-size: 24px;
-  line-height: 1.2;
-}
-
-.dashboard__heading {
-  margin: 0 0 8px;
-  font-size: 20px;
-  line-height: 1.2;
-}
-
-.dashboard__subtitle {
-  margin: 0 0 14px;
-  font-size: 14px;
-  color: hsl(var(--muted-foreground));
-}
-
-.dashboard__meta {
-  display: grid;
-  gap: 8px;
-  font-size: 14px;
-}
-
-.dashboard__meta-row {
-  line-height: 1.3;
-}
-
-.dashboard__text {
+.dashboard-page__eyebrow {
   margin: 0;
-  font-size: 14px;
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: hsl(var(--muted-foreground));
+}
+
+.dashboard-page__title {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.dashboard-page__subtitle {
+  margin: 0;
+  max-width: 760px;
+  color: hsl(var(--muted-foreground));
+}
+
+.dashboard-page__meta-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-page__meta-row {
+  display: grid;
+  gap: 4px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 12px;
+  background: hsl(var(--card));
+}
+
+.dashboard-page__meta-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--muted-foreground));
+}
+
+.dashboard-page__meta-value {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.dashboard-page__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+  .dashboard-page__meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-page__hero {
+    padding: 18px;
+  }
+
+  .dashboard-page__title {
+    font-size: 26px;
+  }
 }
 </style>

@@ -78,7 +78,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const token = (req as any).cookies.refresh_token as string; // guard уже гарантирует, что он есть и валиден
+    const token = (req as any).cookies.refresh_token as string;
 
     const { accessToken, refreshToken } = await this.auth.refresh(
       token,

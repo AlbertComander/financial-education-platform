@@ -30,6 +30,6 @@ describe('App', () => {
     await nextTick()
 
     expect(wrapper.find('.app-layout').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="Переключить меню"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="Свернуть меню"]').exists()).toBe(true)
   })
 })

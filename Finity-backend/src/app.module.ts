@@ -5,6 +5,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { LearningModule } from './learning/learning.module';
 
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -15,6 +16,7 @@ import { RolesGuard } from './auth/roles.guard';
     AuthModule,
     UsersModule,
     PrismaModule,
+    LearningModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

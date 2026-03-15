@@ -37,66 +37,93 @@ async function onSubmit() {
 </script>
 
 <template>
-  <Card class="auth-page auth-page--register">
-    <h1 class="auth-page__title">Регистрация</h1>
-    <p class="auth-page__subtitle">Создайте аккаунт для доступа к платформе</p>
+  <section class="auth-page auth-page--register">
+    <Card class="auth-page__card">
+      <header class="auth-page__header">
+        <p class="auth-page__eyebrow">Finity</p>
+        <h1 class="auth-page__title">Регистрация</h1>
+        <p class="auth-page__subtitle">Создайте аккаунт для доступа к учебной платформе</p>
+      </header>
 
-    <form class="auth-page__form" @submit.prevent="onSubmit">
-      <label class="auth-page__field">
-        <span class="auth-page__field-label">Email</span>
-        <Input v-model="email" type="email" autocomplete="email" required />
-      </label>
+      <form class="auth-page__form" @submit.prevent="onSubmit">
+        <label class="auth-page__field">
+          <span class="auth-page__field-label">Email</span>
+          <Input v-model="email" type="email" autocomplete="email" required />
+        </label>
 
-      <label class="auth-page__field">
-        <span class="auth-page__field-label">Пароль</span>
-        <Input
-          v-model="password"
-          type="password"
-          autocomplete="new-password"
-          :minlength="6"
-          required
-        />
-      </label>
+        <label class="auth-page__field">
+          <span class="auth-page__field-label">Пароль</span>
+          <Input
+            v-model="password"
+            type="password"
+            autocomplete="new-password"
+            :minlength="6"
+            required
+          />
+        </label>
 
-      <label class="auth-page__field">
-        <span class="auth-page__field-label">Повторите пароль</span>
-        <Input
-          v-model="passwordRepeat"
-          type="password"
-          autocomplete="new-password"
-          :minlength="6"
-          required
-        />
-      </label>
+        <label class="auth-page__field">
+          <span class="auth-page__field-label">Повторите пароль</span>
+          <Input
+            v-model="passwordRepeat"
+            type="password"
+            autocomplete="new-password"
+            :minlength="6"
+            required
+          />
+        </label>
 
-      <p v-if="error" class="auth-page__error">{{ error }}</p>
-      <Button type="submit" class="auth-page__submit" :disabled="auth.isLoading">
-        Зарегистрироваться
-      </Button>
-    </form>
+        <p v-if="error" class="auth-page__error">{{ error }}</p>
+        <Button type="submit" class="auth-page__submit" :disabled="auth.isLoading">
+          Зарегистрироваться
+        </Button>
+      </form>
 
-    <p class="auth-page__hint">
-      Уже есть аккаунт?
-      <RouterLink to="/login">Войти</RouterLink>
-    </p>
-  </Card>
+      <p class="auth-page__hint">
+        Уже есть аккаунт?
+        <RouterLink to="/login" class="auth-page__hint-link">Войти</RouterLink>
+      </p>
+    </Card>
+  </section>
 </template>
 
 <style scoped>
 .auth-page {
-  max-width: 430px;
-  margin: 48px auto 0;
-  padding: 24px;
+  display: grid;
+  justify-items: center;
+  padding-top: 28px;
+}
+
+.auth-page__card {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border-radius: 16px;
+}
+
+.auth-page__header {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-page__eyebrow {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
 }
 
 .auth-page__title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 24px;
-  line-height: 1.2;
+  line-height: 1.18;
+  font-weight: 700;
 }
 
 .auth-page__subtitle {
-  margin: 0 0 16px;
+  margin: 0;
   font-size: 14px;
   color: hsl(var(--muted-foreground));
 }
@@ -126,8 +153,19 @@ async function onSubmit() {
 }
 
 .auth-page__hint {
-  margin: 12px 0 0;
+  margin: 0;
   font-size: 14px;
   color: hsl(var(--muted-foreground));
+}
+
+.auth-page__hint-link {
+  margin-left: 4px;
+}
+
+@media (max-width: 640px) {
+  .auth-page__card {
+    padding: 20px;
+    border-radius: 14px;
+  }
 }
 </style>

@@ -1,6 +1,5 @@
+import type { HttpRequestOptions } from '@/types/api'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
-
-type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 
 export class ApiError extends Error {
   status: number
@@ -12,13 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-type RequestOptions = {
-  method?: HttpMethod
-  body?: unknown
-  accessToken?: string | null
-}
-
-export async function httpRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function httpRequest<T>(path: string, options: HttpRequestOptions = {}): Promise<T> {
   const { method = 'GET', body, accessToken } = options
 
   const headers = new Headers()
