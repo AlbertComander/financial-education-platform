@@ -26,8 +26,21 @@ export class LearningController {
   }
 
   @Get('topics')
-  getTopicsWithLessons() {
-    return this.learning.getTopicsWithLessons();
+  getTopicsWithLessons(@Req() req: Request) {
+    return this.learning.getTopicsWithLessons(this.getUserId(req));
+  }
+
+  @Post('lessons/:lessonId/open')
+  markLessonOpened(@Req() req: Request, @Param('lessonId') lessonId: string) {
+    return this.learning.markLessonOpened(this.getUserId(req), lessonId);
+  }
+
+  @Post('lessons/:lessonId/complete')
+  markLessonCompleted(
+    @Req() req: Request,
+    @Param('lessonId') lessonId: string,
+  ) {
+    return this.learning.markLessonCompleted(this.getUserId(req), lessonId);
   }
 
   @Get('lessons/:lessonId')

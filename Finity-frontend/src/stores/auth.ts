@@ -1,18 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, httpRequest } from '@/api/http'
-
-type AuthTokensResponse = {
-  accessToken: string
-}
-
-type AuthUser = {
-  sub: string
-  email: string
-  role: string
-  iat?: number
-  exp?: number
-}
+import type { AuthTokensResponse, AuthUser } from '@/types/auth'
 
 const ACCESS_TOKEN_KEY = 'finity_access_token'
 

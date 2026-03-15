@@ -27,6 +27,17 @@ type EvaluatedQuestion = {
   isCorrect: boolean;
 };
 
+type LessonProgressSnapshot = {
+  status: 'not_started' | 'in_progress' | 'completed';
+  progress_percent: number;
+  last_opened_at: Date | null;
+  completed_at: Date | null;
+  quizzes_total: number;
+  quizzes_solved: number;
+  quizzes_passed: number;
+  best_quiz_percent: number | null;
+};
+
 @Injectable()
 export class LearningService {
   constructor(private prisma: PrismaService) {}
@@ -39,8 +50,217 @@ export class LearningService {
     }
   }
 
-  async getTopicsWithLessons() {
-    return this.prisma.topics.findMany({
+  private toNumber(value: unknown): number {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    if (value && typeof value === 'object' && 'toNumber' in value) {
+      const maybeToNumber = (value as { toNumber?: () => unknown }).toNumber;
+      if (typeof maybeToNumber === 'function') {
+        const parsed = Number(maybeToNumber());
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private scoreToPercent(score: unknown, maxScore: unknown): number {
+    const scoreValue = this.toNumber(score);
+    const maxScoreValue = this.toNumber(maxScore);
+    if (maxScoreValue <= 0) return 0;
+    const percent = Math.round((scoreValue / maxScoreValue) * 100);
+    if (percent < 0) return 0;
+    if (percent > 100) return 100;
+    return percent;
+  }
+
+  private async buildLessonProgressMap(
+    userId: bigint,
+    lessonRecords: Array<{ id: bigint; quizzes: Array<{ id: bigint }> }>,
+  ) {
+    const lessonIds = lessonRecords.map((lesson) => lesson.id);
+    const allQuizIds = lessonRecords.flatMap((lesson) =>
+      lesson.quizzes.map((quiz) => quiz.id),
+    );
+
+    const lessonProgressRows = lessonIds.length
+      ? await this.prisma.user_lesson_progress.findMany({
+          where: {
+            user_id: userId,
+            lesson_id: { in: lessonIds },
+          },
+          select: {
+            lesson_id: true,
+            status: true,
+            progress_percent: true,
+            last_opened_at: true,
+            completed_at: true,
+          },
+        })
+      : [];
+
+    const attempts = allQuizIds.length
+      ? await this.prisma.user_quiz_attempts.findMany({
+          where: {
+            user_id: userId,
+            quiz_id: { in: allQuizIds },
+          },
+          select: {
+            quiz_id: true,
+            score: true,
+            max_score: true,
+          },
+        })
+      : [];
+
+    const lessonProgressByLesson = new Map(
+      lessonProgressRows.map((row) => [row.lesson_id.toString(), row]),
+    );
+
+    const bestPercentByQuiz = new Map<string, number>();
+    for (const attempt of attempts) {
+      const quizKey = attempt.quiz_id.toString();
+      const percent = this.scoreToPercent(attempt.score, attempt.max_score);
+      const prev = bestPercentByQuiz.get(quizKey);
+      if (prev === undefined || percent > prev) {
+        bestPercentByQuiz.set(quizKey, percent);
+      }
+    }
+
+    const result = new Map<string, LessonProgressSnapshot>();
+
+    for (const lesson of lessonRecords) {
+      const lessonKey = lesson.id.toString();
+      const progressRow = lessonProgressByLesson.get(lessonKey);
+      const quizPercents = lesson.quizzes
+        .map((quiz) => bestPercentByQuiz.get(quiz.id.toString()))
+        .filter((value): value is number => value !== undefined);
+      const quizzesTotal = lesson.quizzes.length;
+      const quizzesSolved = quizPercents.length;
+      const quizzesPassed = quizPercents.filter((value) => value >= 70).length;
+      const hasQuizAttempt = quizPercents.length > 0;
+      const bestQuizPercent =
+        quizPercents.length > 0
+          ? Math.max(...quizPercents)
+          : null;
+
+      const completedByQuiz = quizzesTotal > 0 && quizzesSolved === quizzesTotal;
+      const hasDbProgress = (progressRow?.progress_percent ?? 0) > 0;
+      const startedByDb = progressRow?.status === 'in_progress' || hasDbProgress;
+      const completedByDb =
+        progressRow?.status === 'completed' ||
+        (progressRow?.progress_percent ?? 0) >= 100;
+
+      const isCompleted = completedByQuiz || completedByDb;
+      const isStarted = isCompleted || hasQuizAttempt || startedByDb;
+
+      let progressPercent = 0;
+      if (isCompleted) {
+        progressPercent = 100;
+      } else if (quizzesTotal > 0) {
+        const quizProgress = Math.round((quizzesSolved / quizzesTotal) * 100);
+        progressPercent = Math.max(quizProgress, progressRow?.progress_percent ?? 0);
+        if (isStarted && progressPercent === 0) {
+          progressPercent = 10;
+        }
+      } else {
+        progressPercent = Math.max(progressRow?.progress_percent ?? 0, isStarted ? 10 : 0);
+      }
+
+      if (progressPercent > 100) progressPercent = 100;
+
+      result.set(lessonKey, {
+        status: isCompleted ? 'completed' : isStarted ? 'in_progress' : 'not_started',
+        progress_percent: progressPercent,
+        last_opened_at: progressRow?.last_opened_at ?? null,
+        completed_at: isCompleted ? (progressRow?.completed_at ?? null) : null,
+        quizzes_total: quizzesTotal,
+        quizzes_solved: quizzesSolved,
+        quizzes_passed: quizzesPassed,
+        best_quiz_percent: bestQuizPercent,
+      });
+    }
+
+    return result;
+  }
+
+  private async upsertLessonProgressFromQuiz(userId: bigint, lessonId: bigint) {
+    const lesson = await this.prisma.lessons.findUnique({
+      where: { id: lessonId },
+      select: {
+        id: true,
+        quizzes: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+
+    const [progressMap, existing] = await Promise.all([
+      this.buildLessonProgressMap(userId, [lesson]),
+      this.prisma.user_lesson_progress.findUnique({
+        where: {
+          user_id_lesson_id: {
+            user_id: userId,
+            lesson_id: lessonId,
+          },
+        },
+        select: {
+          id: true,
+          progress_percent: true,
+        },
+      }),
+    ]);
+
+    const snapshot = progressMap.get(lessonId.toString());
+    if (!snapshot) {
+      throw new NotFoundException(LearningErrors.lessonNotFound);
+    }
+
+    const now = new Date();
+
+    if (snapshot.status === 'not_started') {
+      return existing;
+    }
+
+    if (!existing) {
+      return this.prisma.user_lesson_progress.create({
+        data: {
+          user_id: userId,
+          lesson_id: lessonId,
+          status: snapshot.status,
+          progress_percent: snapshot.progress_percent,
+          last_opened_at: now,
+          completed_at: snapshot.status === 'completed' ? now : null,
+        },
+      });
+    }
+
+    const nextProgress = Math.max(existing.progress_percent, snapshot.progress_percent);
+
+    return this.prisma.user_lesson_progress.update({
+      where: {
+        user_id_lesson_id: {
+          user_id: userId,
+          lesson_id: lessonId,
+        },
+      },
+      data: {
+        status: snapshot.status,
+        progress_percent: nextProgress,
+        last_opened_at: now,
+        completed_at: snapshot.status === 'completed' ? now : null,
+      },
+    });
+  }
+
+  async getTopicsWithLessons(userId: bigint) {
+    const topics = await this.prisma.topics.findMany({
       orderBy: { order_index: 'asc' },
       select: {
         id: true,
@@ -56,8 +276,140 @@ export class LearningService {
             difficulty: true,
             estimated_minutes: true,
             created_at: true,
+            quizzes: {
+              select: {
+                id: true,
+              },
+            },
           },
         },
+      },
+    });
+
+    const lessonRecords = topics.flatMap((topic) => topic.lessons);
+    const progressMap = await this.buildLessonProgressMap(userId, lessonRecords);
+
+    return topics.map((topic) => ({
+      ...topic,
+      lessons: topic.lessons.map((lesson) => {
+        const snapshot = progressMap.get(lesson.id.toString()) ?? {
+          status: 'not_started' as const,
+          progress_percent: 0,
+          last_opened_at: null,
+          completed_at: null,
+          quizzes_total: lesson.quizzes.length,
+          quizzes_solved: 0,
+          quizzes_passed: 0,
+          best_quiz_percent: null,
+        };
+
+        return {
+          id: lesson.id,
+          title: lesson.title,
+          summary: lesson.summary,
+          difficulty: lesson.difficulty,
+          estimated_minutes: lesson.estimated_minutes,
+          created_at: lesson.created_at,
+          user_progress: snapshot,
+        };
+      }),
+    }));
+  }
+
+  async markLessonOpened(userId: bigint, lessonIdRaw: string) {
+    const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+    const lesson = await this.prisma.lessons.findUnique({
+      where: { id: lessonId },
+      select: { id: true },
+    });
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+
+    const existing = await this.prisma.user_lesson_progress.findUnique({
+      where: {
+        user_id_lesson_id: {
+          user_id: userId,
+          lesson_id: lessonId,
+        },
+      },
+      select: {
+        status: true,
+        progress_percent: true,
+      },
+    });
+
+    const now = new Date();
+
+    if (!existing) {
+      return this.prisma.user_lesson_progress.create({
+        data: {
+          user_id: userId,
+          lesson_id: lessonId,
+          status: 'in_progress',
+          progress_percent: 10,
+          last_opened_at: now,
+        },
+      });
+    }
+
+    if (existing.status === 'completed') {
+      return this.prisma.user_lesson_progress.update({
+        where: {
+          user_id_lesson_id: {
+            user_id: userId,
+            lesson_id: lessonId,
+          },
+        },
+        data: {
+          last_opened_at: now,
+        },
+      });
+    }
+
+    return this.prisma.user_lesson_progress.update({
+      where: {
+        user_id_lesson_id: {
+          user_id: userId,
+          lesson_id: lessonId,
+        },
+      },
+      data: {
+        status: 'in_progress',
+        progress_percent: Math.max(existing.progress_percent, 10),
+        last_opened_at: now,
+      },
+    });
+  }
+
+  async markLessonCompleted(userId: bigint, lessonIdRaw: string) {
+    const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+    const lesson = await this.prisma.lessons.findUnique({
+      where: { id: lessonId },
+      select: { id: true },
+    });
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+
+    const now = new Date();
+
+    return this.prisma.user_lesson_progress.upsert({
+      where: {
+        user_id_lesson_id: {
+          user_id: userId,
+          lesson_id: lessonId,
+        },
+      },
+      create: {
+        user_id: userId,
+        lesson_id: lessonId,
+        status: 'completed',
+        progress_percent: 100,
+        last_opened_at: now,
+        completed_at: now,
+      },
+      update: {
+        status: 'completed',
+        progress_percent: 100,
+        last_opened_at: now,
+        completed_at: now,
       },
     });
   }
@@ -797,6 +1149,7 @@ export class LearningService {
       where: { id: quizId },
       select: {
         id: true,
+        lesson_id: true,
         questions: {
           orderBy: [{ order_index: 'asc' }, { id: 'asc' }],
           select: {
@@ -846,6 +1199,7 @@ export class LearningService {
     });
 
     const percent = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+    await this.upsertLessonProgressFromQuiz(userId, quiz.lesson_id);
 
     return {
       attemptId: attempt.id,
