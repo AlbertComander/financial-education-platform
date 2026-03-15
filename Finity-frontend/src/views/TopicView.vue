@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowRight, BookOpen, Clock3, TrendingUp } from 'lucide-vue-next'
+import { ArrowRight, BookOpen, Clock3, Lock, TrendingUp } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useLearningStore } from '@/stores/learning'
+import { isFinalExamUnlocked, splitTopicLessons } from '@/lib/learning-lessons'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,51 +21,78 @@ const topic = computed(() => {
   return sortedTopics.value.find((item) => item.id === topicId.value) ?? null
 })
 
-const lessonsCount = computed(() => topic.value?.lessons.length ?? 0)
+const topicRegularLessons = computed(() => {
+  if (!topic.value) return []
+  return splitTopicLessons(topic.value).regularLessons
+})
+
+const topicFinalExamLesson = computed(() => {
+  if (!topic.value) return null
+  return splitTopicLessons(topic.value).finalExamLesson
+})
+
+const isTopicFinalExamUnlocked = computed(() => {
+  if (!topic.value) return false
+  return isFinalExamUnlocked(topic.value)
+})
+
+const lessonsCount = computed(() => topicRegularLessons.value.length)
 const nextLessonId = computed(() => {
   if (!topic.value) return ''
+  if (topicRegularLessons.value.length === 0 && topicFinalExamLesson.value && isTopicFinalExamUnlocked.value) {
+    return topicFinalExamLesson.value.id
+  }
   return (
-    topic.value.lessons.find((lesson) => lesson.user_progress.status === 'in_progress')?.id ??
-    topic.value.lessons.find((lesson) => lesson.user_progress.status !== 'completed')?.id ??
-    topic.value.lessons[0]?.id ??
+    topicRegularLessons.value.find((lesson) => lesson.user_progress.status === 'in_progress')?.id ??
+    topicRegularLessons.value.find((lesson) => lesson.user_progress.status !== 'completed')?.id ??
+    topicRegularLessons.value[0]?.id ??
     ''
   )
 })
 const totalMinutes = computed(() => {
-  if (!topic.value) return 0
-  return topic.value.lessons.reduce((sum, lesson) => sum + lesson.estimated_minutes, 0)
+  return topicRegularLessons.value.reduce((sum, lesson) => sum + lesson.estimated_minutes, 0)
 })
 
 const avgDifficulty = computed(() => {
-  if (!topic.value || topic.value.lessons.length === 0) return 0
-  const avg = topic.value.lessons.reduce((sum, lesson) => sum + lesson.difficulty, 0) / topic.value.lessons.length
+  if (topicRegularLessons.value.length === 0) return 0
+  const avg =
+    topicRegularLessons.value.reduce((sum, lesson) => sum + lesson.difficulty, 0) /
+    topicRegularLessons.value.length
   return Number(avg.toFixed(1))
 })
 
 const completedLessonsCount = computed(() => {
-  if (!topic.value) return 0
-  return topic.value.lessons.filter((lesson) => lesson.user_progress.status === 'completed').length
+  return topicRegularLessons.value.filter((lesson) => lesson.user_progress.status === 'completed').length
 })
 
 const inProgressLessonsCount = computed(() => {
-  if (!topic.value) return 0
-  return topic.value.lessons.filter((lesson) => lesson.user_progress.status === 'in_progress').length
+  return topicRegularLessons.value.filter((lesson) => lesson.user_progress.status === 'in_progress').length
 })
 
 const topicProgressPercent = computed(() => {
-  if (!topic.value || topic.value.lessons.length === 0) return 0
-  const total = topic.value.lessons.reduce((sum, lesson) => sum + lesson.user_progress.progress_percent, 0)
-  return Math.round(total / topic.value.lessons.length)
+  const allItems = [
+    ...topicRegularLessons.value,
+    ...(topicFinalExamLesson.value ? [topicFinalExamLesson.value] : []),
+  ]
+  if (allItems.length === 0) return 0
+  const total = allItems.reduce((sum, lesson) => sum + lesson.user_progress.progress_percent, 0)
+  return Math.round(total / allItems.length)
 })
 
 const quizzesTotal = computed(() => {
-  if (!topic.value) return 0
-  return topic.value.lessons.reduce((sum, lesson) => sum + lesson.user_progress.quizzes_total, 0)
+  const allItems = [
+    ...topicRegularLessons.value,
+    ...(topicFinalExamLesson.value ? [topicFinalExamLesson.value] : []),
+  ]
+  return allItems.reduce((sum, lesson) => sum + lesson.user_progress.quizzes_total, 0)
 })
 
 const quizzesSolved = computed(() => {
-  if (!topic.value) return 0
-  return topic.value.lessons.reduce((sum, lesson) => sum + lesson.user_progress.quizzes_solved, 0)
+  const allItems = [
+    ...topicRegularLessons.value,
+    ...(topicFinalExamLesson.value ? [topicFinalExamLesson.value] : []),
+  ]
+  return allItems.reduce((sum, lesson) => sum + lesson.user_progress.quizzes_solved, 0)
 })
 
 onMounted(async () => {
@@ -82,11 +110,25 @@ watch(topicId, async () => {
 })
 
 function openLesson(lessonId: string) {
+  const lesson =
+    topicRegularLessons.value.find((item) => item.id === lessonId) ??
+    (topicFinalExamLesson.value?.id === lessonId ? topicFinalExamLesson.value : null)
+  if (!lesson) return
+
+  if (topicFinalExamLesson.value?.id === lessonId && !isTopicFinalExamUnlocked.value) {
+    return
+  }
+
   void router.push({
     name: 'lesson',
     params: { lessonId },
     query: { topicId: topicId.value },
   })
+}
+
+function openFinalExam() {
+  if (!topicFinalExamLesson.value || !isTopicFinalExamUnlocked.value) return
+  openLesson(topicFinalExamLesson.value.id)
 }
 
 function difficultyLabel(value: number) {
@@ -155,7 +197,13 @@ function lessonProgressWidth(value: number) {
           class="topic-view__start"
           @click="openLesson(nextLessonId)"
         >
-          {{ inProgressLessonsCount > 0 ? 'Продолжить обучение' : 'Начать обучение' }}
+          {{
+            inProgressLessonsCount > 0
+              ? 'Продолжить обучение'
+              : completedLessonsCount === lessonsCount && topicFinalExamLesson
+                ? 'Перейти к финальному тесту'
+                : 'Начать обучение'
+          }}
           <ArrowRight />
         </Button>
       </Card>
@@ -163,7 +211,7 @@ function lessonProgressWidth(value: number) {
       <div class="topic-view__layout">
         <section class="topic-view__lessons">
           <Card
-            v-for="(lesson, lessonIndex) in topic.lessons"
+            v-for="(lesson, lessonIndex) in topicRegularLessons"
             :key="lesson.id"
             class="topic-view__lesson-card"
             role="button"
@@ -203,6 +251,56 @@ function lessonProgressWidth(value: number) {
 
             <ArrowRight class="topic-view__lesson-arrow" />
           </Card>
+
+          <Card
+            v-if="topicFinalExamLesson"
+            class="topic-view__lesson-card topic-view__lesson-card--exam"
+            :class="{ 'topic-view__lesson-card--locked': !isTopicFinalExamUnlocked }"
+            role="button"
+            :tabindex="isTopicFinalExamUnlocked ? 0 : -1"
+            @click="openFinalExam"
+            @keydown.enter.prevent="openFinalExam"
+            @keydown.space.prevent="openFinalExam"
+          >
+            <div class="topic-view__lesson-cover topic-view__lesson-cover--exam">
+              <BookOpen />
+            </div>
+
+            <div class="topic-view__lesson-main">
+              <p class="topic-view__lesson-order">Финальный тест</p>
+              <h2 class="topic-view__lesson-title">{{ topicFinalExamLesson.title }}</h2>
+              <p v-if="topicFinalExamLesson.summary" class="topic-view__lesson-summary">
+                {{ topicFinalExamLesson.summary }}
+              </p>
+              <p v-else class="topic-view__lesson-summary">
+                Итоговая проверка по всей теме.
+              </p>
+              <p class="topic-view__lesson-meta">
+                {{ topicFinalExamLesson.estimated_minutes }} мин · {{ difficultyLabel(topicFinalExamLesson.difficulty) }}
+              </p>
+              <div class="topic-view__lesson-progress-row">
+                <span
+                  class="topic-view__lesson-status"
+                  :class="isTopicFinalExamUnlocked ? lessonStatusClass(topicFinalExamLesson.user_progress.status) : 'topic-view__lesson-status--locked'"
+                >
+                  {{ isTopicFinalExamUnlocked ? lessonStatusLabel(topicFinalExamLesson.user_progress.status) : 'Заблокирован' }}
+                </span>
+                <span class="topic-view__lesson-percent">
+                  {{ isTopicFinalExamUnlocked ? `${topicFinalExamLesson.user_progress.progress_percent}%` : '🔒' }}
+                </span>
+              </div>
+              <div class="topic-view__lesson-progress-bar">
+                <div
+                  class="topic-view__lesson-progress-fill"
+                  :class="isTopicFinalExamUnlocked ? lessonStatusClass(topicFinalExamLesson.user_progress.status) : 'topic-view__lesson-status--locked'"
+                  :style="{ width: isTopicFinalExamUnlocked ? lessonProgressWidth(topicFinalExamLesson.user_progress.progress_percent) : '0%' }"
+                />
+              </div>
+            </div>
+
+            <Lock v-if="!isTopicFinalExamUnlocked" class="topic-view__lesson-lock" />
+            <ArrowRight v-else class="topic-view__lesson-arrow" />
+          </Card>
         </section>
 
         <Card class="topic-view__side">
@@ -216,6 +314,21 @@ function lessonProgressWidth(value: number) {
             <Clock3 />
             <span>Тесты</span>
             <strong>{{ quizzesSolved }} из {{ quizzesTotal }}</strong>
+          </div>
+          <div class="topic-view__side-item">
+            <Lock />
+            <span>Финальный тест</span>
+            <strong>
+              {{
+                !topicFinalExamLesson
+                  ? 'Нет'
+                  : isTopicFinalExamUnlocked
+                    ? topicFinalExamLesson.user_progress.status === 'completed'
+                      ? 'Сдан'
+                      : 'Доступен'
+                    : 'Закрыт'
+              }}
+            </strong>
           </div>
           <div class="topic-view__side-item">
             <TrendingUp />
@@ -340,6 +453,22 @@ function lessonProgressWidth(value: number) {
   box-shadow: 0 12px 26px hsl(220 80% 56% / 0.12);
 }
 
+.topic-view__lesson-card--exam {
+  border-style: dashed;
+}
+
+.topic-view__lesson-card--locked {
+  cursor: not-allowed;
+  opacity: 0.76;
+  transform: none;
+}
+
+.topic-view__lesson-card--locked:hover {
+  transform: none;
+  border-color: hsl(var(--border));
+  box-shadow: none;
+}
+
 .topic-view__lesson-card:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
@@ -358,6 +487,12 @@ function lessonProgressWidth(value: number) {
 .topic-view__lesson-cover :deep(svg) {
   width: 24px;
   height: 24px;
+}
+
+.topic-view__lesson-cover--exam {
+  background:
+    radial-gradient(100px 60px at 85% 18%, hsl(46 100% 58% / 0.42), transparent 65%),
+    linear-gradient(145deg, hsl(260 78% 56%), hsl(220 80% 56%));
 }
 
 .topic-view__lesson-main {
@@ -427,6 +562,12 @@ function lessonProgressWidth(value: number) {
   background: hsl(151 72% 92%);
 }
 
+.topic-view__lesson-status--locked {
+  color: hsl(var(--muted-foreground));
+  border-color: hsl(var(--border));
+  background: hsl(var(--muted));
+}
+
 .topic-view__lesson-percent {
   font-size: 13px;
   color: hsl(var(--muted-foreground));
@@ -458,7 +599,18 @@ function lessonProgressWidth(value: number) {
   background: linear-gradient(90deg, hsl(151 62% 52%), hsl(151 62% 42%));
 }
 
+.topic-view__lesson-progress-fill.topic-view__lesson-status--locked {
+  background: hsl(var(--muted-foreground) / 0.25);
+}
+
 .topic-view__lesson-arrow {
+  width: 18px;
+  height: 18px;
+  color: hsl(var(--muted-foreground));
+  margin-right: 12px;
+}
+
+.topic-view__lesson-lock {
   width: 18px;
   height: 18px;
   color: hsl(var(--muted-foreground));

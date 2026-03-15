@@ -8,6 +8,7 @@ const ProfileView = () => import('@/views/ProfileView.vue')
 const LearningView = () => import('@/views/LearningView.vue')
 const TopicView = () => import('@/views/TopicView.vue')
 const LessonView = () => import('@/views/LessonView.vue')
+const LessonTestResultView = () => import('@/views/LessonTestResultView.vue')
 const QuizView = () => import('@/views/QuizView.vue')
 
 const router = createRouter({
@@ -57,6 +58,12 @@ const router = createRouter({
       path: '/learning/lessons/:lessonId',
       name: 'lesson',
       component: LessonView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/learning/lessons/:lessonId/test-result',
+      name: 'lesson-test-result',
+      component: LessonTestResultView,
       meta: { requiresAuth: true },
     },
     {

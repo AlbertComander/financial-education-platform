@@ -37,12 +37,15 @@ model lesson_blocks {
 model lessons {
   id                   BigInt                 @id @default(autoincrement())
   topic_id             BigInt
+  lesson_type          String                 @default("lesson")
   title                String
   summary              String?
   content              String
   difficulty           Int                    @default(1) @db.SmallInt
   estimated_minutes    Int                    @default(5) @db.SmallInt
   created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  lesson_quick_answers user_lesson_quick_answers[]
+  lesson_quick_questions lesson_quick_questions[]
   lesson_blocks        lesson_blocks[]
   topics               topics                 @relation(fields: [topic_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   quizzes              quizzes[]
@@ -232,6 +235,49 @@ model user_lesson_progress {
   @@index([user_id], map: "idx_progress_user")
 }
 
+model lesson_quick_questions {
+  id                      BigInt                    @id @default(autoincrement())
+  lesson_id               BigInt
+  text                    String
+  order_index             Int                       @default(0)
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  lesson_quick_answers    lesson_quick_answers[]
+  lessons                 lessons                   @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_lesson_quick_answers user_lesson_quick_answers[]
+
+  @@unique([lesson_id, order_index])
+  @@index([lesson_id], map: "idx_quick_questions_lesson")
+}
+
+model lesson_quick_answers {
+  id                      BigInt                 @id @default(autoincrement())
+  question_id             BigInt
+  text                    String
+  is_correct              Boolean                @default(false)
+  feedback_text           String                 @default("")
+  created_at              DateTime               @default(now()) @db.Timestamptz(6)
+  lesson_quick_questions  lesson_quick_questions @relation(fields: [question_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_lesson_quick_answers user_lesson_quick_answers[]
+
+  @@index([question_id], map: "idx_quick_answers_question")
+}
+
+model user_lesson_quick_answers {
+  user_id                 BigInt
+  lesson_id               BigInt
+  question_id             BigInt
+  answer_id               BigInt
+  is_correct              Boolean
+  answered_at             DateTime               @default(now()) @db.Timestamptz(6)
+  lesson_quick_answers    lesson_quick_answers   @relation(fields: [answer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lesson_quick_questions  lesson_quick_questions @relation(fields: [question_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lessons                 lessons                @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                   users                  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, question_id])
+  @@index([user_id, lesson_id], map: "idx_quick_user_lesson")
+}
+
 model user_profile {
   user_id        BigInt   @id
   display_name   String?
@@ -308,6 +354,7 @@ model users {
   user_competency_state user_competency_state[]
   user_events           user_events[]
   user_lesson_progress  user_lesson_progress[]
+  user_lesson_quick_answers user_lesson_quick_answers[]
   user_profile          user_profile?
   user_quiz_attempts    user_quiz_attempts[]
   user_scenario_runs    user_scenario_runs[]

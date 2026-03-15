@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, BookOpen, Clock3, GraduationCap, Sparkles, TrendingUp } from 'lucide-vue-next'
+import { ArrowRight, BookOpen, Check, Clock3, GraduationCap, Sparkles, TrendingUp } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useLearningStore } from '@/stores/learning'
+import { isFinalExamUnlocked, splitTopicLessons } from '@/lib/learning-lessons'
 
 const router = useRouter()
 const learning = useLearningStore()
@@ -15,33 +16,62 @@ const sortedTopics = computed(() => {
 
 const featuredTopic = computed(() => {
   const inProgressTopic =
-    sortedTopics.value.find((topic) =>
-      topic.lessons.some((lesson) => lesson.user_progress.status === 'in_progress'),
-    ) ?? null
+    sortedTopics.value.find((topic) => {
+      const { regularLessons, finalExamLesson } = splitTopicLessons(topic)
+      const hasRegularInProgress = regularLessons.some(
+        (lesson) => lesson.user_progress.status === 'in_progress',
+      )
+      const hasFinalInProgress = finalExamLesson?.user_progress.status === 'in_progress'
+      return hasRegularInProgress || hasFinalInProgress
+    }) ?? null
   if (inProgressTopic) return inProgressTopic
 
   const notFinishedTopic =
-    sortedTopics.value.find((topic) =>
-      topic.lessons.some((lesson) => lesson.user_progress.status !== 'completed'),
-    ) ?? null
+    sortedTopics.value.find((topic) => {
+      const { regularLessons, finalExamLesson } = splitTopicLessons(topic)
+      const hasRegularNotFinished = regularLessons.some(
+        (lesson) => lesson.user_progress.status !== 'completed',
+      )
+      const hasFinalPending =
+        !!finalExamLesson &&
+        isFinalExamUnlocked(topic) &&
+        finalExamLesson.user_progress.status !== 'completed'
+      return hasRegularNotFinished || hasFinalPending
+    }) ?? null
   if (notFinishedTopic) return notFinishedTopic
 
-  return sortedTopics.value.find((topic) => topic.lessons.length > 0) ?? null
+  return sortedTopics.value.find((topic) => splitTopicLessons(topic).regularLessons.length > 0) ?? null
 })
 
 const featuredLesson = computed(() => {
   const topic = featuredTopic.value
   if (!topic) return null
+  const { regularLessons, finalExamLesson } = splitTopicLessons(topic)
+  const regularInProgress =
+    regularLessons.find((lesson) => lesson.user_progress.status === 'in_progress') ?? null
+  if (regularInProgress) return regularInProgress
+
+  const regularNext =
+    regularLessons.find((lesson) => lesson.user_progress.status !== 'completed') ?? null
+  if (regularNext) return regularNext
+
+  if (
+    finalExamLesson &&
+    isFinalExamUnlocked(topic) &&
+    finalExamLesson.user_progress.status !== 'completed'
+  ) {
+    return finalExamLesson
+  }
+
   return (
-    topic.lessons.find((lesson) => lesson.user_progress.status === 'in_progress') ??
-    topic.lessons.find((lesson) => lesson.user_progress.status !== 'completed') ??
-    topic.lessons[0] ??
+    regularLessons[0] ??
+    finalExamLesson ??
     null
   )
 })
 
 const allLessons = computed(() => {
-  return sortedTopics.value.flatMap((topic) => topic.lessons)
+  return sortedTopics.value.flatMap((topic) => splitTopicLessons(topic).regularLessons)
 })
 
 const totalLessons = computed(() => {
@@ -95,27 +125,67 @@ function onTopicKeydown(event: KeyboardEvent, topicId: string) {
 function topicMinutes(topicId: string) {
   const topic = sortedTopics.value.find((item) => item.id === topicId)
   if (!topic) return 0
-  return topic.lessons.reduce((sum, lesson) => sum + lesson.estimated_minutes, 0)
+  return splitTopicLessons(topic).regularLessons.reduce((sum, lesson) => sum + lesson.estimated_minutes, 0)
 }
 
 function topicAverage(topicId: string) {
   const topic = sortedTopics.value.find((item) => item.id === topicId)
-  if (!topic || topic.lessons.length === 0) return 0
-  const avg = topic.lessons.reduce((sum, lesson) => sum + lesson.difficulty, 0) / topic.lessons.length
+  if (!topic) return 0
+  const lessons = splitTopicLessons(topic).regularLessons
+  if (lessons.length === 0) return 0
+  const avg = lessons.reduce((sum, lesson) => sum + lesson.difficulty, 0) / lessons.length
   return Number(avg.toFixed(1))
+}
+
+function topicLessonCount(topicId: string) {
+  const topic = sortedTopics.value.find((item) => item.id === topicId)
+  if (!topic) return 0
+  return splitTopicLessons(topic).regularLessons.length
 }
 
 function topicCompletedLessons(topicId: string) {
   const topic = sortedTopics.value.find((item) => item.id === topicId)
   if (!topic) return 0
-  return topic.lessons.filter((lesson) => lesson.user_progress.status === 'completed').length
+  return splitTopicLessons(topic).regularLessons.filter((lesson) => lesson.user_progress.status === 'completed').length
 }
 
 function topicProgressPercent(topicId: string) {
+  const total = topicLessonCount(topicId)
+  if (total === 0) return 0
+  const completed = topicCompletedLessons(topicId)
+  return Math.round((completed / total) * 100)
+}
+
+function topicHasPendingFinalExam(topicId: string) {
   const topic = sortedTopics.value.find((item) => item.id === topicId)
-  if (!topic || topic.lessons.length === 0) return 0
-  const sum = topic.lessons.reduce((acc, lesson) => acc + lesson.user_progress.progress_percent, 0)
-  return Math.round(sum / topic.lessons.length)
+  if (!topic) return false
+  const { finalExamLesson } = splitTopicLessons(topic)
+  if (!finalExamLesson) return false
+  return isFinalExamUnlocked(topic) && finalExamLesson.user_progress.status !== 'completed'
+}
+
+function isTopicCompleted(topicId: string) {
+  const total = topicLessonCount(topicId)
+  if (total === 0) return false
+  return topicCompletedLessons(topicId) >= total && !topicHasPendingFinalExam(topicId)
+}
+
+function topicProgressLabel(topicId: string) {
+  if (topicHasPendingFinalExam(topicId)) return 'Остался экзамен'
+  return `${topicCompletedLessons(topicId)} из ${topicLessonCount(topicId)} уроков`
+}
+
+const topicProgressCircleRadius = 12
+const topicProgressCircleLength = 2 * Math.PI * topicProgressCircleRadius
+
+function topicProgressCircleStyle(topicId: string) {
+  const percent = Math.max(0, Math.min(100, topicProgressPercent(topicId)))
+  const offset = topicProgressCircleLength - (percent / 100) * topicProgressCircleLength
+
+  return {
+    strokeDasharray: `${topicProgressCircleLength}`,
+    strokeDashoffset: `${offset}`,
+  }
 }
 
 function difficultyLabel(value: number) {
@@ -210,7 +280,7 @@ function topicCoverClass(index: number) {
           <div class="learning-page__progress-grid">
             <div class="learning-page__progress-item">
               <GraduationCap class="learning-page__progress-icon" />
-              <p class="learning-page__progress-label">Уроки пройдено</p>
+              <p class="learning-page__progress-label">Уроков пройдено</p>
               <p class="learning-page__progress-value">{{ completedLessons }} / {{ totalLessons }}</p>
             </div>
             <div class="learning-page__progress-item">
@@ -220,7 +290,7 @@ function topicCoverClass(index: number) {
             </div>
             <div class="learning-page__progress-item">
               <Clock3 class="learning-page__progress-icon" />
-              <p class="learning-page__progress-label">Тесты решено</p>
+              <p class="learning-page__progress-label">Тестов решено</p>
               <p class="learning-page__progress-value">{{ solvedQuizzes }} / {{ totalQuizzes }}</p>
             </div>
             <div class="learning-page__progress-item">
@@ -228,8 +298,8 @@ function topicCoverClass(index: number) {
               <p class="learning-page__progress-label">Общий прогресс</p>
               <p class="learning-page__progress-value">{{ overallProgressPercent }}%</p>
             </div>
-          </div>
-        </Card>
+            </div>
+          </Card>
       </section>
 
       <section class="learning-page__section">
@@ -256,12 +326,39 @@ function topicCoverClass(index: number) {
                 <h3 class="learning-page__topic-title">{{ topic.title }}</h3>
                 <p v-if="topic.description" class="learning-page__topic-description">{{ topic.description }}</p>
 
-                <div class="learning-page__topic-meta">
-                  <span class="learning-page__topic-chip">{{ topic.lessons.length }} уроков</span>
-                  <span class="learning-page__topic-chip">
-                    {{ topicCompletedLessons(topic.id) }} из {{ topic.lessons.length }} пройдено
+                <div class="learning-page__topic-progress-inline">
+
+                  <span
+                    class="learning-page__topic-progress-inline-label"
+                    :class="{ 'learning-page__topic-progress-inline-label--exam': topicHasPendingFinalExam(topic.id) }"
+                  >
+                    {{ topicProgressLabel(topic.id) }}
                   </span>
-                  <span class="learning-page__topic-chip">Прогресс {{ topicProgressPercent(topic.id) }}%</span>
+                  <span
+                    class="learning-page__topic-progress-indicator"
+                    :class="{ 'learning-page__topic-progress-indicator--done': isTopicCompleted(topic.id) }"
+                  >
+                    <Check v-if="isTopicCompleted(topic.id)" class="learning-page__topic-progress-check" />
+                    <svg v-else class="learning-page__topic-progress-ring" viewBox="0 0 32 32" aria-hidden="true">
+                      <circle
+                        class="learning-page__topic-progress-track"
+                        cx="16"
+                        cy="16"
+                        :r="topicProgressCircleRadius"
+                      />
+                      <circle
+                        class="learning-page__topic-progress-value-ring"
+                        cx="16"
+                        cy="16"
+                        :r="topicProgressCircleRadius"
+                        :style="topicProgressCircleStyle(topic.id)"
+                      />
+                    </svg>
+                  </span>
+                </div>
+
+                <div class="learning-page__topic-meta">
+                  <span class="learning-page__topic-chip">{{ topicLessonCount(topic.id) }} уроков</span>
                   <span class="learning-page__topic-chip">{{ formatMinutes(topicMinutes(topic.id)) }}</span>
                   <span class="learning-page__topic-chip">Сложность {{ topicAverage(topic.id) }}</span>
                 </div>
@@ -508,7 +605,7 @@ function topicCoverClass(index: number) {
 
 .learning-page__topic-main {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 200px minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -596,6 +693,66 @@ function topicCoverClass(index: number) {
   color: hsl(var(--muted-foreground));
 }
 
+.learning-page__topic-progress-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.learning-page__topic-progress-ring {
+  width: 32px;
+  height: 32px;
+  transform: rotate(-90deg);
+  flex-shrink: 0;
+}
+
+.learning-page__topic-progress-indicator {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.learning-page__topic-progress-indicator--done {
+  background: hsl(145 54% 91%);
+  border: 1px solid hsl(145 36% 80%);
+  color: hsl(146 66% 33%);
+}
+
+.learning-page__topic-progress-check {
+  width: 18px;
+  height: 18px;
+}
+
+.learning-page__topic-progress-track {
+  fill: none;
+  stroke: hsl(var(--muted));
+  stroke-width: 5;
+}
+
+.learning-page__topic-progress-value-ring {
+  fill: none;
+  stroke: hsl(48 95% 52%);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.24s ease;
+}
+
+.learning-page__topic-progress-inline-label {
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+
+.learning-page__topic-progress-inline-label--exam {
+  color: hsl(35 84% 40%);
+}
+
 .learning-page__badge {
   display: inline-flex;
   align-items: center;
@@ -655,6 +812,7 @@ function topicCoverClass(index: number) {
   .learning-page__topic-cover {
     min-height: 116px;
   }
+
 }
 
 @media (max-width: 700px) {

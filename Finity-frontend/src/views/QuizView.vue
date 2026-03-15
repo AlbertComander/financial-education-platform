@@ -291,6 +291,11 @@ onMounted(async () => {
   line-height: 1.35;
 }
 
+.quiz-view__answer input {
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .quiz-view__submit-hint {
   margin: 0;
   font-size: 13px;

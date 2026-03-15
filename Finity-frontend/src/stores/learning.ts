@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, httpRequest } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
@@ -7,9 +7,11 @@ import type {
   AttemptSubmitAnswer,
   AttemptSubmitResult,
   Lesson,
+  LessonQuickCheck,
   LessonQuiz,
   Quiz,
   QuizAttempt,
+  SubmitLessonQuickAnswerResult,
   Topic,
 } from '@/types/learning'
 
@@ -26,6 +28,18 @@ export const useLearningStore = defineStore('learning', () => {
   const isLoading = ref(false)
   const isSubmitting = ref(false)
   const error = ref('')
+
+  function resetAll() {
+    topics.value = []
+    currentLesson.value = null
+    currentLessonQuizzes.value = []
+    currentQuiz.value = null
+    latestAttempt.value = null
+    myAttempts.value = []
+    isLoading.value = false
+    isSubmitting.value = false
+    error.value = ''
+  }
 
   async function requestWithAuth<T>(
     path: string,
@@ -76,6 +90,34 @@ export const useLearningStore = defineStore('learning', () => {
     } catch {}
   }
 
+  async function getQuizById(quizId: string) {
+    return requestWithAuth<Quiz>(`/learning/quizzes/${quizId}`)
+  }
+
+  async function getMyQuizAttemptsByQuizId(quizId: string) {
+    return requestWithAuth<QuizAttempt[]>(`/learning/quizzes/${quizId}/attempts/me`)
+  }
+
+  async function getLessonQuickCheck(lessonId: string) {
+    return requestWithAuth<LessonQuickCheck>(`/learning/lessons/${lessonId}/quick-check`)
+  }
+
+  async function submitLessonQuickAnswer(
+    lessonId: string,
+    questionId: string,
+    answerId: string,
+  ) {
+    const result = await requestWithAuth<SubmitLessonQuickAnswerResult>(
+      `/learning/lessons/${lessonId}/quick-check/${questionId}/answer`,
+      {
+        method: 'POST',
+        body: { answerId },
+      },
+    )
+    await refreshTopicsSilently()
+    return result
+  }
+
   async function loadLesson(lessonId: string) {
     isLoading.value = true
     error.value = ''
@@ -110,8 +152,8 @@ export const useLearningStore = defineStore('learning', () => {
     latestAttempt.value = null
     try {
       const [quiz, attempts] = await Promise.all([
-        requestWithAuth<Quiz>(`/learning/quizzes/${quizId}`),
-        requestWithAuth<QuizAttempt[]>(`/learning/quizzes/${quizId}/attempts/me`),
+        getQuizById(quizId),
+        getMyQuizAttemptsByQuizId(quizId),
       ])
       currentQuiz.value = quiz
       myAttempts.value = attempts
@@ -134,9 +176,7 @@ export const useLearningStore = defineStore('learning', () => {
           body: { answers },
         },
       )
-      myAttempts.value = await requestWithAuth<QuizAttempt[]>(
-        `/learning/quizzes/${quizId}/attempts/me`,
-      )
+      myAttempts.value = await getMyQuizAttemptsByQuizId(quizId)
       await refreshTopicsSilently()
       return latestAttempt.value
     } catch (err) {
@@ -156,17 +196,53 @@ export const useLearningStore = defineStore('learning', () => {
       })
       await refreshTopicsSilently()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to mark lesson as completed'
+      error.value =
+        err instanceof Error ? err.message : 'Не удалось отметить урок завершенным'
       throw err
     } finally {
       isSubmitting.value = false
     }
   }
 
+  async function updateLessonReadProgress(lessonId: string, percent: number) {
+    const normalizedPercent = Math.max(0, Math.min(100, Math.round(percent)))
+
+    for (const topic of topics.value) {
+      const lesson = topic.lessons.find((item) => item.id === lessonId)
+      if (!lesson) continue
+
+      if (lesson.user_progress.status !== 'completed') {
+        lesson.user_progress.status =
+          normalizedPercent > 0 ? 'in_progress' : lesson.user_progress.status
+        lesson.user_progress.progress_percent = Math.max(
+          lesson.user_progress.progress_percent,
+          normalizedPercent,
+        )
+      }
+      break
+    }
+
+    try {
+      await requestWithAuth(`/learning/lessons/${lessonId}/read-progress`, {
+        method: 'POST',
+        body: { percent: normalizedPercent },
+      })
+    } catch {}
+  }
+
   function resetTransient() {
     latestAttempt.value = null
     error.value = ''
   }
+
+  watch(
+    () => auth.user?.sub ?? null,
+    (nextUserId, prevUserId) => {
+      if (nextUserId !== prevUserId) {
+        resetAll()
+      }
+    },
+  )
 
   return {
     topics,
@@ -181,9 +257,15 @@ export const useLearningStore = defineStore('learning', () => {
     loadTopics,
     loadLesson,
     loadQuiz,
+    getQuizById,
+    getMyQuizAttemptsByQuizId,
+    getLessonQuickCheck,
+    submitLessonQuickAnswer,
     submitQuizAttempt,
     markLessonCompleted,
+    updateLessonReadProgress,
+    refreshTopicsSilently,
+    resetAll,
     resetTransient,
   }
 })
-

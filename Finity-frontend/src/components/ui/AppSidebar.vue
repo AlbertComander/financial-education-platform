@@ -3,6 +3,7 @@ import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
+import { useLearningStore } from '@/stores/learning'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import iconLogin from '@/assets/icons/sidebar/login.svg'
@@ -24,6 +25,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const userStore = useUserStore()
+const learningStore = useLearningStore()
 
 const sidebarIconMap = {
   login: iconLogin,
@@ -83,6 +85,7 @@ function isLinkActive(path: string) {
 
 async function onLogout() {
   await auth.logout()
+  learningStore.resetAll()
   userStore.reset()
   await router.push({ name: 'login' })
 }

@@ -79,11 +79,19 @@ export class LearningService {
 
   private async buildLessonProgressMap(
     userId: bigint,
-    lessonRecords: Array<{ id: bigint; quizzes: Array<{ id: bigint }> }>,
+    lessonRecords: Array<{
+      id: bigint;
+      lesson_type: string;
+      quizzes: Array<{ id: bigint }>;
+      lesson_quick_questions: Array<{ id: bigint }>;
+    }>,
   ) {
     const lessonIds = lessonRecords.map((lesson) => lesson.id);
     const allQuizIds = lessonRecords.flatMap((lesson) =>
       lesson.quizzes.map((quiz) => quiz.id),
+    );
+    const allQuickQuestionIds = lessonRecords.flatMap((lesson) =>
+      lesson.lesson_quick_questions.map((question) => question.id),
     );
 
     const lessonProgressRows = lessonIds.length
@@ -116,6 +124,20 @@ export class LearningService {
         })
       : [];
 
+    const quickAnswers = allQuickQuestionIds.length
+      ? await this.prisma.user_lesson_quick_answers.findMany({
+          where: {
+            user_id: userId,
+            question_id: { in: allQuickQuestionIds },
+          },
+          select: {
+            lesson_id: true,
+            question_id: true,
+            is_correct: true,
+          },
+        })
+      : [];
+
     const lessonProgressByLesson = new Map(
       lessonProgressRows.map((row) => [row.lesson_id.toString(), row]),
     );
@@ -130,11 +152,65 @@ export class LearningService {
       }
     }
 
+    const quickAnsweredByLesson = new Map<string, number>();
+    const quickCorrectByLesson = new Map<string, number>();
+    for (const answer of quickAnswers) {
+      const lessonKey = answer.lesson_id.toString();
+      quickAnsweredByLesson.set(
+        lessonKey,
+        (quickAnsweredByLesson.get(lessonKey) ?? 0) + 1,
+      );
+      if (answer.is_correct) {
+        quickCorrectByLesson.set(
+          lessonKey,
+          (quickCorrectByLesson.get(lessonKey) ?? 0) + 1,
+        );
+      }
+    }
+
     const result = new Map<string, LessonProgressSnapshot>();
 
     for (const lesson of lessonRecords) {
       const lessonKey = lesson.id.toString();
       const progressRow = lessonProgressByLesson.get(lessonKey);
+      const lessonType = lesson.lesson_type ?? 'lesson';
+      const quickTotal = lesson.lesson_quick_questions.length;
+      const quickAnswered = quickAnsweredByLesson.get(lessonKey) ?? 0;
+      const quickCorrect = quickCorrectByLesson.get(lessonKey) ?? 0;
+      const hasDbProgress = (progressRow?.progress_percent ?? 0) > 0;
+      const startedByDb = progressRow?.status === 'in_progress' || hasDbProgress;
+      const completedByDb =
+        progressRow?.status === 'completed' ||
+        (progressRow?.progress_percent ?? 0) >= 100;
+
+      if (lessonType === 'lesson') {
+        const completedByQuick = quickTotal > 0 && quickCorrect >= quickTotal;
+        const isCompleted = completedByQuick || completedByDb;
+        const isStarted = isCompleted || quickAnswered > 0 || startedByDb;
+
+        let progressPercent = Math.max(progressRow?.progress_percent ?? 0, isStarted ? 10 : 0);
+        if (isCompleted) {
+          progressPercent = 100;
+        } else {
+          progressPercent = Math.min(progressPercent, 90);
+        }
+
+        const quickPercent =
+          quickTotal > 0 ? Math.round((quickCorrect / quickTotal) * 100) : null;
+
+        result.set(lessonKey, {
+          status: isCompleted ? 'completed' : isStarted ? 'in_progress' : 'not_started',
+          progress_percent: progressPercent,
+          last_opened_at: progressRow?.last_opened_at ?? null,
+          completed_at: isCompleted ? (progressRow?.completed_at ?? null) : null,
+          quizzes_total: quickTotal > 0 ? 1 : 0,
+          quizzes_solved: completedByQuick ? 1 : 0,
+          quizzes_passed: completedByQuick ? 1 : 0,
+          best_quiz_percent: quickPercent,
+        });
+        continue;
+      }
+
       const quizPercents = lesson.quizzes
         .map((quiz) => bestPercentByQuiz.get(quiz.id.toString()))
         .filter((value): value is number => value !== undefined);
@@ -148,11 +224,6 @@ export class LearningService {
           : null;
 
       const completedByQuiz = quizzesTotal > 0 && quizzesSolved === quizzesTotal;
-      const hasDbProgress = (progressRow?.progress_percent ?? 0) > 0;
-      const startedByDb = progressRow?.status === 'in_progress' || hasDbProgress;
-      const completedByDb =
-        progressRow?.status === 'completed' ||
-        (progressRow?.progress_percent ?? 0) >= 100;
 
       const isCompleted = completedByQuiz || completedByDb;
       const isStarted = isCompleted || hasQuizAttempt || startedByDb;
@@ -192,7 +263,13 @@ export class LearningService {
       where: { id: lessonId },
       select: {
         id: true,
+        lesson_type: true,
         quizzes: {
+          select: {
+            id: true,
+          },
+        },
+        lesson_quick_questions: {
           select: {
             id: true,
           },
@@ -200,6 +277,9 @@ export class LearningService {
       },
     });
     if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+    if (lesson.lesson_type === 'lesson') {
+      return null;
+    }
 
     const [progressMap, existing] = await Promise.all([
       this.buildLessonProgressMap(userId, [lesson]),
@@ -271,11 +351,17 @@ export class LearningService {
           orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
+            lesson_type: true,
             title: true,
             summary: true,
             difficulty: true,
             estimated_minutes: true,
             created_at: true,
+            lesson_quick_questions: {
+              select: {
+                id: true,
+              },
+            },
             quizzes: {
               select: {
                 id: true,
@@ -297,7 +383,10 @@ export class LearningService {
           progress_percent: 0,
           last_opened_at: null,
           completed_at: null,
-          quizzes_total: lesson.quizzes.length,
+          quizzes_total:
+            lesson.lesson_type === 'lesson'
+              ? (lesson.lesson_quick_questions.length > 0 ? 1 : 0)
+              : lesson.quizzes.length,
           quizzes_solved: 0,
           quizzes_passed: 0,
           best_quiz_percent: null,
@@ -305,6 +394,7 @@ export class LearningService {
 
         return {
           id: lesson.id,
+          lesson_type: lesson.lesson_type,
           title: lesson.title,
           summary: lesson.summary,
           difficulty: lesson.difficulty,
@@ -320,7 +410,7 @@ export class LearningService {
     const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
     const lesson = await this.prisma.lessons.findUnique({
       where: { id: lessonId },
-      select: { id: true },
+      select: { id: true, lesson_type: true },
     });
     if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
 
@@ -384,7 +474,7 @@ export class LearningService {
     const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
     const lesson = await this.prisma.lessons.findUnique({
       where: { id: lessonId },
-      select: { id: true },
+      select: { id: true, lesson_type: true },
     });
     if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
 
@@ -414,6 +504,77 @@ export class LearningService {
     });
   }
 
+  async updateLessonReadProgress(
+    userId: bigint,
+    lessonIdRaw: string,
+    percentRaw: number,
+  ) {
+    const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+    const lesson = await this.prisma.lessons.findUnique({
+      where: { id: lessonId },
+      select: { id: true, lesson_type: true },
+    });
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+
+    const existing = await this.prisma.user_lesson_progress.findUnique({
+      where: {
+        user_id_lesson_id: {
+          user_id: userId,
+          lesson_id: lessonId,
+        },
+      },
+      select: {
+        status: true,
+        progress_percent: true,
+      },
+    });
+
+    if (existing?.status === 'completed') {
+      return existing;
+    }
+
+    const maxReadPercent = lesson.lesson_type === 'lesson' ? 90 : 99;
+    const normalizedPercent = Math.max(
+      0,
+      Math.min(maxReadPercent, Math.round(percentRaw)),
+    );
+
+    if (!existing && normalizedPercent === 0) {
+      return null;
+    }
+
+    const now = new Date();
+
+    if (!existing) {
+      return this.prisma.user_lesson_progress.create({
+        data: {
+          user_id: userId,
+          lesson_id: lessonId,
+          status: 'in_progress',
+          progress_percent: normalizedPercent,
+          last_opened_at: now,
+        },
+      });
+    }
+
+    const nextPercent = Math.max(existing.progress_percent, normalizedPercent);
+    const nextStatus = nextPercent > 0 ? 'in_progress' : existing.status;
+
+    return this.prisma.user_lesson_progress.update({
+      where: {
+        user_id_lesson_id: {
+          user_id: userId,
+          lesson_id: lessonId,
+        },
+      },
+      data: {
+        status: nextStatus,
+        progress_percent: nextPercent,
+        last_opened_at: now,
+      },
+    });
+  }
+
   async getLessonById(lessonIdRaw: string) {
     const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
 
@@ -422,6 +583,7 @@ export class LearningService {
       select: {
         id: true,
         topic_id: true,
+        lesson_type: true,
         title: true,
         summary: true,
         content: true,
@@ -442,6 +604,290 @@ export class LearningService {
 
     if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
     return lesson;
+  }
+
+  async getLessonQuickCheck(userId: bigint, lessonIdRaw: string) {
+    const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+
+    const lesson = await this.prisma.lessons.findUnique({
+      where: { id: lessonId },
+      select: {
+        id: true,
+        lesson_type: true,
+        lesson_quick_questions: {
+          orderBy: [{ order_index: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            text: true,
+            order_index: true,
+            lesson_quick_answers: {
+              orderBy: { id: 'asc' },
+              select: {
+                id: true,
+                text: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+    if (lesson.lesson_type !== 'lesson') {
+      throw new BadRequestException(
+        'Мини-тест доступен только для обычного урока.',
+      );
+    }
+
+    const userAnswers = await this.prisma.user_lesson_quick_answers.findMany({
+      where: {
+        user_id: userId,
+        lesson_id: lessonId,
+      },
+      select: {
+        question_id: true,
+        answer_id: true,
+        is_correct: true,
+      },
+    });
+
+    const userAnswerByQuestion = new Map(
+      userAnswers.map((item) => [item.question_id.toString(), item]),
+    );
+
+    const totalQuestions = lesson.lesson_quick_questions.length;
+    const answeredQuestions = userAnswers.length;
+    const correctQuestions = userAnswers.filter((item) => item.is_correct).length;
+    const completed = totalQuestions > 0 && correctQuestions >= totalQuestions;
+
+    return {
+      lessonId: lesson.id,
+      totalQuestions,
+      answeredQuestions,
+      correctQuestions,
+      completed,
+      questions: lesson.lesson_quick_questions.map((question) => {
+        const userAnswer = userAnswerByQuestion.get(question.id.toString());
+        return {
+          id: question.id,
+          text: question.text,
+          order_index: question.order_index,
+          selected_answer_id: userAnswer?.answer_id ?? null,
+          selected_is_correct: userAnswer?.is_correct ?? null,
+          answers: question.lesson_quick_answers.map((answer) => ({
+            id: answer.id,
+            text: answer.text,
+          })),
+        };
+      }),
+    };
+  }
+
+  private async syncRegularLessonQuickProgress(userId: bigint, lessonId: bigint) {
+    const [lesson, userAnswers, existing] = await Promise.all([
+      this.prisma.lessons.findUnique({
+        where: { id: lessonId },
+        select: {
+          id: true,
+          lesson_type: true,
+          lesson_quick_questions: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      }),
+      this.prisma.user_lesson_quick_answers.findMany({
+        where: {
+          user_id: userId,
+          lesson_id: lessonId,
+        },
+        select: {
+          question_id: true,
+          is_correct: true,
+        },
+      }),
+      this.prisma.user_lesson_progress.findUnique({
+        where: {
+          user_id_lesson_id: {
+            user_id: userId,
+            lesson_id: lessonId,
+          },
+        },
+        select: {
+          status: true,
+          progress_percent: true,
+        },
+      }),
+    ]);
+
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+    if (lesson.lesson_type !== 'lesson') return null;
+
+    const totalQuestions = lesson.lesson_quick_questions.length;
+    const answeredQuestions = userAnswers.length;
+    const correctQuestions = userAnswers.filter((item) => item.is_correct).length;
+    const completed = totalQuestions > 0 && correctQuestions >= totalQuestions;
+    const now = new Date();
+
+    if (completed) {
+      await this.prisma.user_lesson_progress.upsert({
+        where: {
+          user_id_lesson_id: {
+            user_id: userId,
+            lesson_id: lessonId,
+          },
+        },
+        create: {
+          user_id: userId,
+          lesson_id: lessonId,
+          status: 'completed',
+          progress_percent: 100,
+          last_opened_at: now,
+          completed_at: now,
+        },
+        update: {
+          status: 'completed',
+          progress_percent: 100,
+          last_opened_at: now,
+          completed_at: now,
+        },
+      });
+
+      return {
+        totalQuestions,
+        answeredQuestions,
+        correctQuestions,
+        completed,
+        progressPercent: 100,
+      };
+    } else {
+      const currentPercent = existing?.progress_percent ?? 0;
+      const basePercent =
+        answeredQuestions > 0 ? Math.max(currentPercent, 10) : currentPercent;
+      const nextPercent = Math.min(basePercent, 90);
+
+      await this.prisma.user_lesson_progress.upsert({
+        where: {
+          user_id_lesson_id: {
+            user_id: userId,
+            lesson_id: lessonId,
+          },
+        },
+        create: {
+          user_id: userId,
+          lesson_id: lessonId,
+          status: nextPercent > 0 ? 'in_progress' : 'not_started',
+          progress_percent: nextPercent,
+          last_opened_at: now,
+        },
+        update: {
+          status: nextPercent > 0 ? 'in_progress' : existing?.status ?? 'not_started',
+          progress_percent: nextPercent,
+          last_opened_at: now,
+          completed_at: null,
+        },
+      });
+
+      return {
+        totalQuestions,
+        answeredQuestions,
+        correctQuestions,
+        completed,
+        progressPercent: nextPercent,
+      };
+    }
+  }
+
+  async submitLessonQuickAnswer(
+    userId: bigint,
+    lessonIdRaw: string,
+    questionIdRaw: string,
+    answerIdRaw: string,
+  ) {
+    const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+    const questionId = this.parseBigInt(questionIdRaw, 'questionId');
+    const answerId = this.parseBigInt(answerIdRaw, 'answerId');
+
+    const question = await this.prisma.lesson_quick_questions.findFirst({
+      where: {
+        id: questionId,
+        lesson_id: lessonId,
+      },
+      select: {
+        id: true,
+        lesson_id: true,
+        lessons: {
+          select: {
+            lesson_type: true,
+          },
+        },
+        lesson_quick_answers: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            text: true,
+            is_correct: true,
+            feedback_text: true,
+          },
+        },
+      },
+    });
+
+    if (!question) throw new NotFoundException('Вопрос мини-теста не найден.');
+    if (question.lessons.lesson_type !== 'lesson') {
+      throw new BadRequestException(
+        'Ответ на мини-тест доступен только для обычного урока.',
+      );
+    }
+
+    const selectedAnswer = question.lesson_quick_answers.find(
+      (item) => item.id === answerId,
+    );
+    if (!selectedAnswer) {
+      throw new BadRequestException('Выбранный вариант не относится к этому вопросу.');
+    }
+
+    const correctAnswer = question.lesson_quick_answers.find(
+      (item) => item.is_correct,
+    );
+
+    await this.prisma.user_lesson_quick_answers.upsert({
+      where: {
+        user_id_question_id: {
+          user_id: userId,
+          question_id: questionId,
+        },
+      },
+      create: {
+        user_id: userId,
+        lesson_id: lessonId,
+        question_id: questionId,
+        answer_id: answerId,
+        is_correct: selectedAnswer.is_correct,
+        answered_at: new Date(),
+      },
+      update: {
+        answer_id: answerId,
+        is_correct: selectedAnswer.is_correct,
+        answered_at: new Date(),
+      },
+    });
+
+    const progressState = await this.syncRegularLessonQuickProgress(
+      userId,
+      lessonId,
+    );
+
+    return {
+      lessonId,
+      questionId,
+      selectedAnswerId: selectedAnswer.id,
+      isCorrect: selectedAnswer.is_correct,
+      feedback: selectedAnswer.feedback_text,
+      correctAnswerId: correctAnswer?.id ?? null,
+      progress: progressState,
+    };
   }
 
   async getLessonQuizzes(lessonIdRaw: string) {
@@ -538,6 +984,7 @@ export class LearningService {
           orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
+            lesson_type: true,
             title: true,
             summary: true,
             difficulty: true,
@@ -609,6 +1056,7 @@ export class LearningService {
     return this.prisma.lessons.create({
       data: {
         topic_id: topicId,
+        lesson_type: dto.lessonType ?? 'lesson',
         title: dto.title,
         summary: dto.summary ?? null,
         content: dto.content,
@@ -632,6 +1080,9 @@ export class LearningService {
     return this.prisma.lessons.update({
       where: { id: lessonId },
       data: {
+        ...(dto.lessonType !== undefined
+          ? { lesson_type: dto.lessonType }
+          : {}),
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.summary !== undefined ? { summary: dto.summary } : {}),
         ...(dto.content !== undefined ? { content: dto.content } : {}),

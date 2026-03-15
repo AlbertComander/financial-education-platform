@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   IsInt,
   IsNotEmpty,
+  IsIn,
   IsOptional,
   IsString,
   Max,
@@ -10,6 +11,14 @@ import {
 } from 'class-validator';
 
 export class CreateLessonDto {
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsString()
+  @IsOptional()
+  @IsIn(['lesson', 'final_exam'])
+  lessonType?: 'lesson' | 'final_exam';
+
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -47,6 +56,14 @@ export class CreateLessonDto {
 }
 
 export class UpdateLessonDto {
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsString()
+  @IsOptional()
+  @IsIn(['lesson', 'final_exam'])
+  lessonType?: 'lesson' | 'final_exam';
+
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim() : value,
   )

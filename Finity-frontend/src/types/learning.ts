@@ -1,5 +1,6 @@
 export type TopicLesson = {
   id: string
+  lesson_type: 'lesson' | 'final_exam'
   title: string
   summary: string | null
   difficulty: number
@@ -37,6 +38,7 @@ export type LessonBlock = {
 export type Lesson = {
   id: string
   topic_id: string
+  lesson_type: 'lesson' | 'final_exam'
   title: string
   summary: string | null
   content: string
@@ -44,6 +46,45 @@ export type Lesson = {
   estimated_minutes: number
   created_at: string
   lesson_blocks: LessonBlock[]
+}
+
+export type LessonQuickCheckAnswer = {
+  id: string
+  text: string
+}
+
+export type LessonQuickCheckQuestion = {
+  id: string
+  text: string
+  order_index: number
+  selected_answer_id: string | null
+  selected_is_correct: boolean | null
+  answers: LessonQuickCheckAnswer[]
+}
+
+export type LessonQuickCheck = {
+  lessonId: string
+  totalQuestions: number
+  answeredQuestions: number
+  correctQuestions: number
+  completed: boolean
+  questions: LessonQuickCheckQuestion[]
+}
+
+export type SubmitLessonQuickAnswerResult = {
+  lessonId: string
+  questionId: string
+  selectedAnswerId: string
+  isCorrect: boolean
+  feedback: string
+  correctAnswerId: string | null
+  progress: {
+    totalQuestions: number
+    answeredQuestions: number
+    correctQuestions: number
+    completed: boolean
+    progressPercent: number
+  } | null
 }
 
 export type LessonQuiz = {
