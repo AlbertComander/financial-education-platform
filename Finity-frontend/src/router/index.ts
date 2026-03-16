@@ -3,8 +3,9 @@ import { useAuthStore } from '@/stores/auth'
 
 const LoginView = () => import('@/views/LoginView.vue')
 const RegisterView = () => import('@/views/RegisterView.vue')
-const DashboardView = () => import('@/views/DashboardView.vue')
 const ProfileView = () => import('@/views/ProfileView.vue')
+const EditProfileView = () => import('@/views/EditProfileView.vue')
+const SettingsView = () => import('@/views/SettingsView.vue')
 const LearningView = () => import('@/views/LearningView.vue')
 const TopicView = () => import('@/views/TopicView.vue')
 const LessonView = () => import('@/views/LessonView.vue')
@@ -16,7 +17,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/dashboard',
+      redirect: '/profile',
     },
     {
       path: '/login',
@@ -31,15 +32,21 @@ const router = createRouter({
       meta: { publicOnly: true },
     },
     {
-      path: '/dashboard',
-      name: 'dashboard',
-      component: DashboardView,
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/profile',
       name: 'profile',
       component: ProfileView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/profile/edit',
+      name: 'profile-edit',
+      component: EditProfileView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsView,
       meta: { requiresAuth: true },
     },
     {
@@ -86,7 +93,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.publicOnly && auth.isAuthenticated) {
-    return { name: 'dashboard' }
+    return { name: 'profile' }
   }
 
   return true

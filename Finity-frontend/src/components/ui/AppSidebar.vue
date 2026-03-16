@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import iconLogin from '@/assets/icons/sidebar/login.svg'
 import iconRegister from '@/assets/icons/sidebar/register.svg'
-import iconDashboard from '@/assets/icons/sidebar/dashboard.svg'
 import iconLearning from '@/assets/icons/sidebar/learning.svg'
 import iconProfile from '@/assets/icons/sidebar/profile.svg'
+import iconSettings from '@/assets/icons/sidebar/settings.svg'
 import iconLogout from '@/assets/icons/sidebar/logout.svg'
 
 const props = defineProps<{
@@ -30,9 +30,9 @@ const learningStore = useLearningStore()
 const sidebarIconMap = {
   login: iconLogin,
   register: iconRegister,
-  dashboard: iconDashboard,
   learning: iconLearning,
   profile: iconProfile,
+  settings: iconSettings,
   logout: iconLogout,
 } as const
 
@@ -45,9 +45,9 @@ const links = computed(() => {
   }
 
   return [
-    { name: 'Кабинет', to: '/dashboard', iconKey: 'dashboard' },
-    { name: 'Обучение', to: '/learning', iconKey: 'learning' },
     { name: 'Профиль', to: '/profile', iconKey: 'profile' },
+    { name: 'Обучение', to: '/learning', iconKey: 'learning' },
+    { name: 'Настройки', to: '/settings', iconKey: 'settings' },
   ]
 })
 
@@ -67,7 +67,7 @@ const fallbackInitial = computed(() => {
 })
 
 function iconMask(iconKey: string) {
-  const icon = sidebarIconMap[iconKey as keyof typeof sidebarIconMap] ?? sidebarIconMap.dashboard
+  const icon = sidebarIconMap[iconKey as keyof typeof sidebarIconMap] ?? sidebarIconMap.profile
   return `url("${icon}")`
 }
 

@@ -178,7 +178,8 @@ export class LearningService {
       const quickAnswered = quickAnsweredByLesson.get(lessonKey) ?? 0;
       const quickCorrect = quickCorrectByLesson.get(lessonKey) ?? 0;
       const hasDbProgress = (progressRow?.progress_percent ?? 0) > 0;
-      const startedByDb = progressRow?.status === 'in_progress' || hasDbProgress;
+      const startedByDb =
+        progressRow?.status === 'in_progress' || hasDbProgress;
       const completedByDb =
         progressRow?.status === 'completed' ||
         (progressRow?.progress_percent ?? 0) >= 100;
@@ -188,7 +189,10 @@ export class LearningService {
         const isCompleted = completedByQuick || completedByDb;
         const isStarted = isCompleted || quickAnswered > 0 || startedByDb;
 
-        let progressPercent = Math.max(progressRow?.progress_percent ?? 0, isStarted ? 10 : 0);
+        let progressPercent = Math.max(
+          progressRow?.progress_percent ?? 0,
+          isStarted ? 10 : 0,
+        );
         if (isCompleted) {
           progressPercent = 100;
         } else {
@@ -199,10 +203,16 @@ export class LearningService {
           quickTotal > 0 ? Math.round((quickCorrect / quickTotal) * 100) : null;
 
         result.set(lessonKey, {
-          status: isCompleted ? 'completed' : isStarted ? 'in_progress' : 'not_started',
+          status: isCompleted
+            ? 'completed'
+            : isStarted
+              ? 'in_progress'
+              : 'not_started',
           progress_percent: progressPercent,
           last_opened_at: progressRow?.last_opened_at ?? null,
-          completed_at: isCompleted ? (progressRow?.completed_at ?? null) : null,
+          completed_at: isCompleted
+            ? (progressRow?.completed_at ?? null)
+            : null,
           quizzes_total: quickTotal > 0 ? 1 : 0,
           quizzes_solved: completedByQuick ? 1 : 0,
           quizzes_passed: completedByQuick ? 1 : 0,
@@ -219,11 +229,10 @@ export class LearningService {
       const quizzesPassed = quizPercents.filter((value) => value >= 70).length;
       const hasQuizAttempt = quizPercents.length > 0;
       const bestQuizPercent =
-        quizPercents.length > 0
-          ? Math.max(...quizPercents)
-          : null;
+        quizPercents.length > 0 ? Math.max(...quizPercents) : null;
 
-      const completedByQuiz = quizzesTotal > 0 && quizzesSolved === quizzesTotal;
+      const completedByQuiz =
+        quizzesTotal > 0 && quizzesSolved === quizzesTotal;
 
       const isCompleted = completedByQuiz || completedByDb;
       const isStarted = isCompleted || hasQuizAttempt || startedByDb;
@@ -233,18 +242,28 @@ export class LearningService {
         progressPercent = 100;
       } else if (quizzesTotal > 0) {
         const quizProgress = Math.round((quizzesSolved / quizzesTotal) * 100);
-        progressPercent = Math.max(quizProgress, progressRow?.progress_percent ?? 0);
+        progressPercent = Math.max(
+          quizProgress,
+          progressRow?.progress_percent ?? 0,
+        );
         if (isStarted && progressPercent === 0) {
           progressPercent = 10;
         }
       } else {
-        progressPercent = Math.max(progressRow?.progress_percent ?? 0, isStarted ? 10 : 0);
+        progressPercent = Math.max(
+          progressRow?.progress_percent ?? 0,
+          isStarted ? 10 : 0,
+        );
       }
 
       if (progressPercent > 100) progressPercent = 100;
 
       result.set(lessonKey, {
-        status: isCompleted ? 'completed' : isStarted ? 'in_progress' : 'not_started',
+        status: isCompleted
+          ? 'completed'
+          : isStarted
+            ? 'in_progress'
+            : 'not_started',
         progress_percent: progressPercent,
         last_opened_at: progressRow?.last_opened_at ?? null,
         completed_at: isCompleted ? (progressRow?.completed_at ?? null) : null,
@@ -269,11 +288,6 @@ export class LearningService {
             id: true,
           },
         },
-        lesson_quick_questions: {
-          select: {
-            id: true,
-          },
-        },
       },
     });
     if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
@@ -281,8 +295,9 @@ export class LearningService {
       return null;
     }
 
-    const [progressMap, existing] = await Promise.all([
-      this.buildLessonProgressMap(userId, [lesson]),
+    const quizIds = lesson.quizzes.map((quiz) => quiz.id);
+
+    const [existing, attempts] = await Promise.all([
       this.prisma.user_lesson_progress.findUnique({
         where: {
           user_id_lesson_id: {
@@ -292,36 +307,83 @@ export class LearningService {
         },
         select: {
           id: true,
+          status: true,
           progress_percent: true,
         },
       }),
+      quizIds.length
+        ? this.prisma.user_quiz_attempts.findMany({
+            where: {
+              user_id: userId,
+              quiz_id: { in: quizIds },
+            },
+            select: {
+              quiz_id: true,
+              score: true,
+              max_score: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
-    const snapshot = progressMap.get(lessonId.toString());
-    if (!snapshot) {
-      throw new NotFoundException(LearningErrors.lessonNotFound);
+    const bestPercentByQuiz = new Map<string, number>();
+    for (const attempt of attempts) {
+      const quizKey = attempt.quiz_id.toString();
+      const percent = this.scoreToPercent(attempt.score, attempt.max_score);
+      const previous = bestPercentByQuiz.get(quizKey);
+      if (previous === undefined || percent > previous) {
+        bestPercentByQuiz.set(quizKey, percent);
+      }
+    }
+
+    const quizzesTotal = quizIds.length;
+    const quizzesSolved = bestPercentByQuiz.size;
+    const completedByQuiz = quizzesTotal > 0 && quizzesSolved === quizzesTotal;
+    const startedByDb =
+      (existing?.progress_percent ?? 0) > 0 ||
+      existing?.status === 'in_progress';
+    const isCompleted = completedByQuiz;
+    const isStarted = isCompleted || quizzesSolved > 0 || startedByDb;
+
+    let progressPercent = 0;
+    if (isCompleted) {
+      progressPercent = 100;
+    } else if (quizzesTotal > 0) {
+      const quizProgress = Math.round((quizzesSolved / quizzesTotal) * 100);
+      progressPercent = Math.max(quizProgress, existing?.progress_percent ?? 0);
+      if (isStarted && progressPercent === 0) {
+        progressPercent = 10;
+      }
+    } else {
+      progressPercent = Math.max(
+        existing?.progress_percent ?? 0,
+        isStarted ? 10 : 0,
+      );
     }
 
     const now = new Date();
-
-    if (snapshot.status === 'not_started') {
+    if (!isStarted) {
       return existing;
     }
+
+    const nextStatus: 'not_started' | 'in_progress' | 'completed' = isCompleted
+      ? 'completed'
+      : 'in_progress';
 
     if (!existing) {
       return this.prisma.user_lesson_progress.create({
         data: {
           user_id: userId,
           lesson_id: lessonId,
-          status: snapshot.status,
-          progress_percent: snapshot.progress_percent,
+          status: nextStatus,
+          progress_percent: progressPercent,
           last_opened_at: now,
-          completed_at: snapshot.status === 'completed' ? now : null,
+          completed_at: isCompleted ? now : null,
         },
       });
     }
 
-    const nextProgress = Math.max(existing.progress_percent, snapshot.progress_percent);
+    const nextProgress = Math.max(existing.progress_percent, progressPercent);
 
     return this.prisma.user_lesson_progress.update({
       where: {
@@ -331,10 +393,10 @@ export class LearningService {
         },
       },
       data: {
-        status: snapshot.status,
+        status: nextStatus,
         progress_percent: nextProgress,
         last_opened_at: now,
-        completed_at: snapshot.status === 'completed' ? now : null,
+        completed_at: isCompleted ? now : null,
       },
     });
   }
@@ -373,7 +435,10 @@ export class LearningService {
     });
 
     const lessonRecords = topics.flatMap((topic) => topic.lessons);
-    const progressMap = await this.buildLessonProgressMap(userId, lessonRecords);
+    const progressMap = await this.buildLessonProgressMap(
+      userId,
+      lessonRecords,
+    );
 
     return topics.map((topic) => ({
       ...topic,
@@ -385,7 +450,9 @@ export class LearningService {
           completed_at: null,
           quizzes_total:
             lesson.lesson_type === 'lesson'
-              ? (lesson.lesson_quick_questions.length > 0 ? 1 : 0)
+              ? lesson.lesson_quick_questions.length > 0
+                ? 1
+                : 0
               : lesson.quizzes.length,
           quizzes_solved: 0,
           quizzes_passed: 0,
@@ -657,7 +724,9 @@ export class LearningService {
 
     const totalQuestions = lesson.lesson_quick_questions.length;
     const answeredQuestions = userAnswers.length;
-    const correctQuestions = userAnswers.filter((item) => item.is_correct).length;
+    const correctQuestions = userAnswers.filter(
+      (item) => item.is_correct,
+    ).length;
     const completed = totalQuestions > 0 && correctQuestions >= totalQuestions;
 
     return {
@@ -683,7 +752,10 @@ export class LearningService {
     };
   }
 
-  private async syncRegularLessonQuickProgress(userId: bigint, lessonId: bigint) {
+  private async syncRegularLessonQuickProgress(
+    userId: bigint,
+    lessonId: bigint,
+  ) {
     const [lesson, userAnswers, existing] = await Promise.all([
       this.prisma.lessons.findUnique({
         where: { id: lessonId },
@@ -726,7 +798,9 @@ export class LearningService {
 
     const totalQuestions = lesson.lesson_quick_questions.length;
     const answeredQuestions = userAnswers.length;
-    const correctQuestions = userAnswers.filter((item) => item.is_correct).length;
+    const correctQuestions = userAnswers.filter(
+      (item) => item.is_correct,
+    ).length;
     const completed = totalQuestions > 0 && correctQuestions >= totalQuestions;
     const now = new Date();
 
@@ -782,7 +856,10 @@ export class LearningService {
           last_opened_at: now,
         },
         update: {
-          status: nextPercent > 0 ? 'in_progress' : existing?.status ?? 'not_started',
+          status:
+            nextPercent > 0
+              ? 'in_progress'
+              : (existing?.status ?? 'not_started'),
           progress_percent: nextPercent,
           last_opened_at: now,
           completed_at: null,
@@ -845,7 +922,9 @@ export class LearningService {
       (item) => item.id === answerId,
     );
     if (!selectedAnswer) {
-      throw new BadRequestException('Выбранный вариант не относится к этому вопросу.');
+      throw new BadRequestException(
+        'Выбранный вариант не относится к этому вопросу.',
+      );
     }
 
     const correctAnswer = question.lesson_quick_answers.find(

@@ -115,7 +115,6 @@ export class AuthService {
           ui_lang: 'ru',
           theme: 'light',
           notifications_enabled: true,
-          personalization_level: 1,
           updated_at: new Date(),
         },
       }),
