@@ -25,7 +25,7 @@ async function onSubmit() {
 
   try {
     await auth.register(email.value.trim(), password.value)
-    await router.push({ name: 'dashboard' })
+    await router.push({ name: 'profile' })
   } catch (e) {
     if (e instanceof ApiError) {
       error.value = e.message

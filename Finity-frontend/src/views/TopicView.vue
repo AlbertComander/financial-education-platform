@@ -37,9 +37,16 @@ const isTopicFinalExamUnlocked = computed(() => {
 })
 
 const lessonsCount = computed(() => topicRegularLessons.value.length)
+const shouldOpenFinalExamFromHero = computed(() => {
+  if (!topicFinalExamLesson.value) return false
+  if (!isTopicFinalExamUnlocked.value) return false
+  if (topicFinalExamLesson.value.user_progress.status === 'completed') return false
+  return completedLessonsCount.value >= lessonsCount.value
+})
+
 const nextLessonId = computed(() => {
   if (!topic.value) return ''
-  if (topicRegularLessons.value.length === 0 && topicFinalExamLesson.value && isTopicFinalExamUnlocked.value) {
+  if (shouldOpenFinalExamFromHero.value && topicFinalExamLesson.value) {
     return topicFinalExamLesson.value.id
   }
   return (
@@ -200,7 +207,7 @@ function lessonProgressWidth(value: number) {
           {{
             inProgressLessonsCount > 0
               ? 'Продолжить обучение'
-              : completedLessonsCount === lessonsCount && topicFinalExamLesson
+              : shouldOpenFinalExamFromHero
                 ? 'Перейти к финальному тесту'
                 : 'Начать обучение'
           }}

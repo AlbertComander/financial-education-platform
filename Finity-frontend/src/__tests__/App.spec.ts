@@ -13,7 +13,6 @@ describe('App', () => {
         { path: '/', component: { template: '<div>Home</div>' } },
         { path: '/login', component: { template: '<div>Login</div>' } },
         { path: '/register', component: { template: '<div>Register</div>' } },
-        { path: '/dashboard', component: { template: '<div>Dashboard</div>' } },
         { path: '/profile', component: { template: '<div>Profile</div>' } },
       ],
     })

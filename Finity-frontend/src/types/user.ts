@@ -12,7 +12,6 @@ export type UserSettings = {
   ui_lang: string
   theme: string
   notifications_enabled: boolean
-  personalization_level: number
   updated_at: string
 }
 
@@ -27,5 +26,4 @@ export type UpdateSettingsPayload = {
   ui_lang?: string
   theme?: string
   notifications_enabled?: boolean
-  personalization_level?: number
 }

@@ -1,11 +1,4 @@
-import {
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-  Max,
-} from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -20,10 +13,4 @@ export class UpdateSettingsDto {
 
   @IsOptional()
   notifications_enabled?: boolean;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(3)
-  personalization_level?: number;
 }
