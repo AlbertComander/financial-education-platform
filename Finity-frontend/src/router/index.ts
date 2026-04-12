@@ -74,7 +74,7 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/learning/quizzes/:quizId',
+      path: '/learning/final-quizzes/:quizId',
       name: 'quiz',
       component: QuizView,
       meta: { requiresAuth: true },

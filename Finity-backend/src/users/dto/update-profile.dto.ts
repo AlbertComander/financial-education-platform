@@ -1,12 +1,5 @@
 import { Prisma } from '@prisma/client';
-import {
-  IsObject,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-  Max,
-} from 'class-validator';
+import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -18,11 +11,6 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(500)
   goal?: string;
-
-  @IsOptional()
-  @Min(0)
-  @Max(10)
-  experience_lvl?: number;
 
   @IsOptional()
   @IsObject()

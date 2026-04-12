@@ -4,13 +4,13 @@ import { ApiError, httpRequest } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import type { AuthenticatedRequestOptions } from '@/types/api'
 import type {
-  AttemptSubmitAnswer,
-  AttemptSubmitResult,
+  FinalQuiz,
+  FinalQuizAttempt,
+  FinalQuizAttemptSubmitAnswer,
+  FinalQuizAttemptSubmitResult,
   Lesson,
+  LessonFinalQuiz,
   LessonQuickCheck,
-  LessonQuiz,
-  Quiz,
-  QuizAttempt,
   SubmitLessonQuickAnswerResult,
   Topic,
 } from '@/types/learning'
@@ -20,10 +20,10 @@ export const useLearningStore = defineStore('learning', () => {
 
   const topics = ref<Topic[]>([])
   const currentLesson = ref<Lesson | null>(null)
-  const currentLessonQuizzes = ref<LessonQuiz[]>([])
-  const currentQuiz = ref<Quiz | null>(null)
-  const latestAttempt = ref<AttemptSubmitResult | null>(null)
-  const myAttempts = ref<QuizAttempt[]>([])
+  const currentLessonFinalQuizzes = ref<LessonFinalQuiz[]>([])
+  const currentFinalQuiz = ref<FinalQuiz | null>(null)
+  const latestFinalQuizAttempt = ref<FinalQuizAttemptSubmitResult | null>(null)
+  const myFinalQuizAttempts = ref<FinalQuizAttempt[]>([])
 
   const isLoading = ref(false)
   const isSubmitting = ref(false)
@@ -32,10 +32,10 @@ export const useLearningStore = defineStore('learning', () => {
   function resetAll() {
     topics.value = []
     currentLesson.value = null
-    currentLessonQuizzes.value = []
-    currentQuiz.value = null
-    latestAttempt.value = null
-    myAttempts.value = []
+    currentLessonFinalQuizzes.value = []
+    currentFinalQuiz.value = null
+    latestFinalQuizAttempt.value = null
+    myFinalQuizAttempts.value = []
     isLoading.value = false
     isSubmitting.value = false
     error.value = ''
@@ -90,12 +90,12 @@ export const useLearningStore = defineStore('learning', () => {
     } catch {}
   }
 
-  async function getQuizById(quizId: string) {
-    return requestWithAuth<Quiz>(`/learning/quizzes/${quizId}`)
+  async function getFinalQuizById(quizId: string) {
+    return requestWithAuth<FinalQuiz>(`/learning/final-quizzes/${quizId}`)
   }
 
-  async function getMyQuizAttemptsByQuizId(quizId: string) {
-    return requestWithAuth<QuizAttempt[]>(`/learning/quizzes/${quizId}/attempts/me`)
+  async function getMyFinalQuizAttemptsByQuizId(quizId: string) {
+    return requestWithAuth<FinalQuizAttempt[]>(`/learning/final-quizzes/${quizId}/attempts/me`)
   }
 
   async function getLessonQuickCheck(lessonId: string) {
@@ -122,14 +122,14 @@ export const useLearningStore = defineStore('learning', () => {
     isLoading.value = true
     error.value = ''
     currentLesson.value = null
-    currentLessonQuizzes.value = []
+    currentLessonFinalQuizzes.value = []
     try {
       const [lesson, quizzes] = await Promise.all([
         requestWithAuth<Lesson>(`/learning/lessons/${lessonId}`),
-        requestWithAuth<LessonQuiz[]>(`/learning/lessons/${lessonId}/quizzes`),
+        requestWithAuth<LessonFinalQuiz[]>(`/learning/lessons/${lessonId}/final-quizzes`),
       ])
       currentLesson.value = lesson
-      currentLessonQuizzes.value = quizzes
+      currentLessonFinalQuizzes.value = quizzes
       try {
         await requestWithAuth(`/learning/lessons/${lessonId}/open`, {
           method: 'POST',
@@ -144,19 +144,19 @@ export const useLearningStore = defineStore('learning', () => {
     }
   }
 
-  async function loadQuiz(quizId: string) {
+  async function loadFinalQuiz(quizId: string) {
     isLoading.value = true
     error.value = ''
-    currentQuiz.value = null
-    myAttempts.value = []
-    latestAttempt.value = null
+    currentFinalQuiz.value = null
+    myFinalQuizAttempts.value = []
+    latestFinalQuizAttempt.value = null
     try {
       const [quiz, attempts] = await Promise.all([
-        getQuizById(quizId),
-        getMyQuizAttemptsByQuizId(quizId),
+        getFinalQuizById(quizId),
+        getMyFinalQuizAttemptsByQuizId(quizId),
       ])
-      currentQuiz.value = quiz
-      myAttempts.value = attempts
+      currentFinalQuiz.value = quiz
+      myFinalQuizAttempts.value = attempts
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Не удалось загрузить тест'
       throw err
@@ -165,20 +165,23 @@ export const useLearningStore = defineStore('learning', () => {
     }
   }
 
-  async function submitQuizAttempt(quizId: string, answers: AttemptSubmitAnswer[]) {
+  async function submitFinalQuizAttempt(
+    quizId: string,
+    answers: FinalQuizAttemptSubmitAnswer[],
+  ) {
     isSubmitting.value = true
     error.value = ''
     try {
-      latestAttempt.value = await requestWithAuth<AttemptSubmitResult>(
-        `/learning/quizzes/${quizId}/attempts`,
+      latestFinalQuizAttempt.value = await requestWithAuth<FinalQuizAttemptSubmitResult>(
+        `/learning/final-quizzes/${quizId}/attempts`,
         {
           method: 'POST',
           body: { answers },
         },
       )
-      myAttempts.value = await getMyQuizAttemptsByQuizId(quizId)
+      myFinalQuizAttempts.value = await getMyFinalQuizAttemptsByQuizId(quizId)
       await refreshTopicsSilently()
-      return latestAttempt.value
+      return latestFinalQuizAttempt.value
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Не удалось отправить попытку'
       throw err
@@ -231,7 +234,7 @@ export const useLearningStore = defineStore('learning', () => {
   }
 
   function resetTransient() {
-    latestAttempt.value = null
+    latestFinalQuizAttempt.value = null
     error.value = ''
   }
 
@@ -247,21 +250,21 @@ export const useLearningStore = defineStore('learning', () => {
   return {
     topics,
     currentLesson,
-    currentLessonQuizzes,
-    currentQuiz,
-    latestAttempt,
-    myAttempts,
+    currentLessonFinalQuizzes,
+    currentFinalQuiz,
+    latestFinalQuizAttempt,
+    myFinalQuizAttempts,
     isLoading,
     isSubmitting,
     error,
     loadTopics,
     loadLesson,
-    loadQuiz,
-    getQuizById,
-    getMyQuizAttemptsByQuizId,
+    loadFinalQuiz,
+    getFinalQuizById,
+    getMyFinalQuizAttemptsByQuizId,
     getLessonQuickCheck,
     submitLessonQuickAnswer,
-    submitQuizAttempt,
+    submitFinalQuizAttempt,
     markLessonCompleted,
     updateLessonReadProgress,
     refreshTopicsSilently,

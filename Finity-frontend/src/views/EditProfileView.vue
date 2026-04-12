@@ -193,7 +193,6 @@ async function onSave() {
     await userStore.saveProfile({
       display_name: profileForm.display_name.trim(),
       goal: profileForm.goal.trim(),
-      experience_lvl: autoExperienceScore.value,
       base_params: buildBaseParams(),
     })
     initialProfileState.value = JSON.stringify(getProfileState())

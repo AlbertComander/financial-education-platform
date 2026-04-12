@@ -87,7 +87,7 @@ export type SubmitLessonQuickAnswerResult = {
   } | null
 }
 
-export type LessonQuiz = {
+export type LessonFinalQuiz = {
   id: string
   lesson_id: string
   title: string
@@ -97,33 +97,33 @@ export type LessonQuiz = {
   }
 }
 
-export type QuizAnswer = {
+export type FinalQuizAnswer = {
   id: string
   text: string
 }
 
-export type QuizQuestion = {
+export type FinalQuizQuestion = {
   id: string
   text: string
   q_type: 'single' | 'multiple'
   order_index: number
-  answers: QuizAnswer[]
+  answers: FinalQuizAnswer[]
 }
 
-export type Quiz = {
+export type FinalQuiz = {
   id: string
   lesson_id: string
   title: string
   description: string | null
-  questions: QuizQuestion[]
+  questions: FinalQuizQuestion[]
 }
 
-export type AttemptSubmitAnswer = {
+export type FinalQuizAttemptSubmitAnswer = {
   questionId: string
   selectedAnswerIds: string[]
 }
 
-export type AttemptSubmitResult = {
+export type FinalQuizAttemptSubmitResult = {
   attemptId: string
   quizId: string
   score: number
@@ -137,7 +137,7 @@ export type AttemptSubmitResult = {
   finishedAt: string | null
 }
 
-export type QuizAttempt = {
+export type FinalQuizAttempt = {
   id: string
   quiz_id: string
   started_at: string

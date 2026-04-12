@@ -969,7 +969,7 @@ export class LearningService {
     };
   }
 
-  async getLessonQuizzes(lessonIdRaw: string) {
+  async getLessonFinalQuizzes(lessonIdRaw: string) {
     const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
 
     return this.prisma.quizzes.findMany({
@@ -987,7 +987,7 @@ export class LearningService {
     });
   }
 
-  async getQuizById(quizIdRaw: string) {
+  async getFinalQuizById(quizIdRaw: string) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
 
     const quiz = await this.prisma.quizzes.findUnique({
@@ -1183,7 +1183,7 @@ export class LearningService {
     return { deleted: result.count };
   }
 
-  async createQuiz(lessonIdRaw: string, dto: CreateQuizDto) {
+  async createFinalQuiz(lessonIdRaw: string, dto: CreateQuizDto) {
     const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
 
     const lesson = await this.prisma.lessons.findUnique({
@@ -1201,7 +1201,7 @@ export class LearningService {
     });
   }
 
-  async createQuizWithQuestions(
+  async createFinalQuizWithQuestions(
     lessonIdRaw: string,
     dto: CreateQuizWithQuestionsDto,
   ) {
@@ -1284,7 +1284,7 @@ export class LearningService {
     return createdQuiz;
   }
 
-  async getQuizForEditor(quizIdRaw: string) {
+  async getFinalQuizForEditor(quizIdRaw: string) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
 
     const quiz = await this.prisma.quizzes.findUnique({
@@ -1318,7 +1318,7 @@ export class LearningService {
     return quiz;
   }
 
-  async updateQuiz(quizIdRaw: string, dto: UpdateQuizDto) {
+  async updateFinalQuiz(quizIdRaw: string, dto: UpdateQuizDto) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
 
     const quiz = await this.prisma.quizzes.findUnique({
@@ -1338,7 +1338,7 @@ export class LearningService {
     });
   }
 
-  async deleteQuiz(quizIdRaw: string) {
+  async deleteFinalQuiz(quizIdRaw: string) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
     const result = await this.prisma.quizzes.deleteMany({
       where: { id: quizId },
@@ -1348,7 +1348,7 @@ export class LearningService {
     return { deleted: result.count };
   }
 
-  async createQuestion(quizIdRaw: string, dto: CreateQuestionDto) {
+  async createFinalQuizQuestion(quizIdRaw: string, dto: CreateQuestionDto) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
     const qType = this.normalizeQuestionType(dto.qType);
     this.validateQuestionAnswerSet(qType, dto.answers);
@@ -1668,7 +1668,7 @@ export class LearningService {
     return { evaluated, score, maxScore };
   }
 
-  async submitQuizAttempt(
+  async submitFinalQuizAttempt(
     userId: bigint,
     quizIdRaw: string,
     dto: SubmitQuizAttemptDto,
@@ -1742,7 +1742,7 @@ export class LearningService {
     };
   }
 
-  async getMyQuizAttempts(userId: bigint, quizIdRaw: string) {
+  async getMyFinalQuizAttempts(userId: bigint, quizIdRaw: string) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
 
     return this.prisma.user_quiz_attempts.findMany({

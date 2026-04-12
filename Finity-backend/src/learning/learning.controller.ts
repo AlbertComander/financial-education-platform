@@ -64,7 +64,10 @@ export class LearningController {
   }
 
   @Get('lessons/:lessonId/quick-check')
-  getLessonQuickCheck(@Req() req: Request, @Param('lessonId') lessonId: string) {
+  getLessonQuickCheck(
+    @Req() req: Request,
+    @Param('lessonId') lessonId: string,
+  ) {
     return this.learning.getLessonQuickCheck(this.getUserId(req), lessonId);
   }
 
@@ -83,27 +86,31 @@ export class LearningController {
     );
   }
 
-  @Get('lessons/:lessonId/quizzes')
-  getLessonQuizzes(@Param('lessonId') lessonId: string) {
-    return this.learning.getLessonQuizzes(lessonId);
+  @Get('lessons/:lessonId/final-quizzes')
+  getLessonFinalQuizzes(@Param('lessonId') lessonId: string) {
+    return this.learning.getLessonFinalQuizzes(lessonId);
   }
 
-  @Get('quizzes/:quizId')
-  getQuiz(@Param('quizId') quizId: string) {
-    return this.learning.getQuizById(quizId);
+  @Get('final-quizzes/:quizId')
+  getFinalQuiz(@Param('quizId') quizId: string) {
+    return this.learning.getFinalQuizById(quizId);
   }
 
-  @Post('quizzes/:quizId/attempts')
-  submitQuizAttempt(
+  @Post('final-quizzes/:quizId/attempts')
+  submitFinalQuizAttempt(
     @Req() req: Request,
     @Param('quizId') quizId: string,
     @Body() dto: SubmitQuizAttemptDto,
   ) {
-    return this.learning.submitQuizAttempt(this.getUserId(req), quizId, dto);
+    return this.learning.submitFinalQuizAttempt(
+      this.getUserId(req),
+      quizId,
+      dto,
+    );
   }
 
-  @Get('quizzes/:quizId/attempts/me')
-  getMyQuizAttempts(@Req() req: Request, @Param('quizId') quizId: string) {
-    return this.learning.getMyQuizAttempts(this.getUserId(req), quizId);
+  @Get('final-quizzes/:quizId/attempts/me')
+  getMyFinalQuizAttempts(@Req() req: Request, @Param('quizId') quizId: string) {
+    return this.learning.getMyFinalQuizAttempts(this.getUserId(req), quizId);
   }
 }

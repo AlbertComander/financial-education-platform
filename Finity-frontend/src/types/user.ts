@@ -18,7 +18,6 @@ export type UserSettings = {
 export type UpdateProfilePayload = {
   display_name?: string
   goal?: string
-  experience_lvl?: number
   base_params?: Record<string, unknown>
 }
 
