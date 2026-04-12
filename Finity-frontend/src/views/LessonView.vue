@@ -6,7 +6,11 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useLearningStore } from '@/stores/learning'
 import { isFinalExamLesson, isFinalExamUnlocked } from '@/lib/learning-lessons'
-import type { AttemptSubmitAnswer, LessonBlock, Quiz } from '@/types/learning'
+import type {
+  FinalQuiz,
+  FinalQuizAttemptSubmitAnswer,
+  LessonBlock,
+} from '@/types/learning'
 import iconCheckCircle from '@/assets/icons/lessons/check-circle.svg'
 
 const route = useRoute()
@@ -29,7 +33,7 @@ const finalExamLocked = ref(false)
 const finalQuizLoading = ref(false)
 const finalQuizSubmitting = ref(false)
 const finalQuizError = ref('')
-const finalQuiz = ref<Quiz | null>(null)
+const finalQuiz = ref<FinalQuiz | null>(null)
 const finalQuizSelectedAnswers = ref<Record<string, string[]>>({})
 
 const quickCheckLoading = ref(false)
@@ -310,8 +314,8 @@ const progressFillStyle = computed(() => {
   return { width: `${displayReadPercent.value}%` }
 })
 
-const hasFinalQuiz = computed(() => learning.currentLessonQuizzes.length > 0)
-const firstQuizId = computed(() => learning.currentLessonQuizzes[0]?.id ?? '')
+const hasFinalQuiz = computed(() => learning.currentLessonFinalQuizzes.length > 0)
+const firstQuizId = computed(() => learning.currentLessonFinalQuizzes[0]?.id ?? '')
 
 const currentTopic = computed(() => {
   for (const topic of learning.topics) {
@@ -518,7 +522,7 @@ async function loadFinalQuiz(quizId: string) {
   finalQuizLoading.value = true
   finalQuizError.value = ''
   try {
-    const quiz = await learning.getQuizById(quizId)
+    const quiz = await learning.getFinalQuizById(quizId)
     finalQuiz.value = quiz
     const state: Record<string, string[]> = {}
     for (const question of quiz.questions) {
@@ -536,7 +540,7 @@ async function loadFinalQuiz(quizId: string) {
 
 async function submitFinalQuiz() {
   if (!finalQuiz.value || !canSubmitFinalQuiz.value) return
-  const payload: AttemptSubmitAnswer[] = finalQuiz.value.questions.map((question) => ({
+  const payload: FinalQuizAttemptSubmitAnswer[] = finalQuiz.value.questions.map((question) => ({
     questionId: question.id,
     selectedAnswerIds: finalQuizSelectedAnswers.value[question.id] ?? [],
   }))
@@ -544,7 +548,7 @@ async function submitFinalQuiz() {
   finalQuizSubmitting.value = true
   finalQuizError.value = ''
   try {
-    const result = await learning.submitQuizAttempt(finalQuiz.value.id, payload)
+    const result = await learning.submitFinalQuizAttempt(finalQuiz.value.id, payload)
     await learning.refreshTopicsSilently()
     openTestResultPage({
       score: Number(result?.score ?? 0),
@@ -771,7 +775,7 @@ onBeforeUnmount(() => {
           </span>
           <span class="lesson-view__meta-chip">
             <ListChecks class="lesson-view__meta-chip-icon" />
-            Тестов: {{ learning.currentLessonQuizzes.length }}
+            Тестов: {{ learning.currentLessonFinalQuizzes.length }}
           </span>
         </div>
       </Card>

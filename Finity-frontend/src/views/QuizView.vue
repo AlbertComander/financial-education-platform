@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useRoute, useRouter } from 'vue-router'
 import { useLearningStore } from '@/stores/learning'
-import type { QuizAttempt } from '@/types/learning'
+import type { FinalQuizAttempt } from '@/types/learning'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,13 +17,13 @@ const topicIdQuery = computed(() => {
 })
 const selectedAnswers = ref<Record<string, string[]>>({})
 const canSubmit = computed(() => {
-  const quiz = learning.currentQuiz
+  const quiz = learning.currentFinalQuiz
   if (!quiz) return false
   return quiz.questions.every((question) => (selectedAnswers.value[question.id]?.length ?? 0) > 0)
 })
 
 function normalizeSelections() {
-  const quiz = learning.currentQuiz
+  const quiz = learning.currentFinalQuiz
   if (!quiz) return
 
   const state: Record<string, string[]> = {}
@@ -51,7 +51,7 @@ function toggleMulti(questionId: string, answerId: string) {
 }
 
 function buildSubmitPayload() {
-  const quiz = learning.currentQuiz
+  const quiz = learning.currentFinalQuiz
   if (!quiz) return []
 
   return quiz.questions.map((question) => ({
@@ -61,51 +61,51 @@ function buildSubmitPayload() {
 }
 
 function attemptDisplayNumber(index: number) {
-  return learning.myAttempts.length - index
+  return learning.myFinalQuizAttempts.length - index
 }
 
-function attemptCorrectSummary(attempt: QuizAttempt): string {
+function attemptCorrectSummary(attempt: FinalQuizAttempt): string {
   const total = attempt.user_answers.length
   if (total === 0) return '- / -'
   const correct = attempt.user_answers.filter((answer) => answer.is_correct === true).length
   return `${correct} / ${total}`
 }
 
-async function loadQuiz() {
+async function loadFinalQuiz() {
   if (!quizId.value) return
   try {
-    await learning.loadQuiz(quizId.value)
+    await learning.loadFinalQuiz(quizId.value)
     normalizeSelections()
     learning.resetTransient()
   } catch {}
 }
 
-async function submitQuiz() {
-  if (!learning.currentQuiz || !canSubmit.value) return
+async function submitFinalQuiz() {
+  if (!learning.currentFinalQuiz || !canSubmit.value) return
   try {
-    await learning.submitQuizAttempt(learning.currentQuiz.id, buildSubmitPayload())
+    await learning.submitFinalQuizAttempt(learning.currentFinalQuiz.id, buildSubmitPayload())
   } catch {}
 }
 
 function backToLesson() {
-  if (!learning.currentQuiz) return
+  if (!learning.currentFinalQuiz) return
   const query = topicIdQuery.value ? { topicId: topicIdQuery.value } : {}
-  void router.push({ name: 'lesson', params: { lessonId: learning.currentQuiz.lesson_id }, query })
+  void router.push({ name: 'lesson', params: { lessonId: learning.currentFinalQuiz.lesson_id }, query })
 }
 
 watch(quizId, () => {
-  void loadQuiz()
+  void loadFinalQuiz()
 })
 
 watch(
-  () => learning.currentQuiz?.id,
+  () => learning.currentFinalQuiz?.id,
   () => {
     normalizeSelections()
   },
 )
 
 onMounted(async () => {
-  await loadQuiz()
+  await loadFinalQuiz()
 })
 </script>
 
@@ -113,7 +113,7 @@ onMounted(async () => {
   <section class="quiz-view">
     <header class="quiz-view__header">
       <Button
-        v-if="learning.currentQuiz"
+        v-if="learning.currentFinalQuiz"
         variant="outline"
         size="sm"
         @click="backToLesson"
@@ -127,16 +127,16 @@ onMounted(async () => {
       {{ learning.error }}
     </p>
 
-    <template v-else-if="learning.currentQuiz">
+    <template v-else-if="learning.currentFinalQuiz">
       <Card class="quiz-view__quiz-card">
-        <h1 class="quiz-view__title">{{ learning.currentQuiz.title }}</h1>
-        <p v-if="learning.currentQuiz.description" class="quiz-view__description">
-          {{ learning.currentQuiz.description }}
+        <h1 class="quiz-view__title">{{ learning.currentFinalQuiz.title }}</h1>
+        <p v-if="learning.currentFinalQuiz.description" class="quiz-view__description">
+          {{ learning.currentFinalQuiz.description }}
         </p>
 
         <div class="quiz-view__questions">
           <Card
-            v-for="(question, questionIndex) in learning.currentQuiz.questions"
+            v-for="(question, questionIndex) in learning.currentFinalQuiz.questions"
             :key="question.id"
             class="quiz-view__question-card"
           >
@@ -176,29 +176,29 @@ onMounted(async () => {
           Ответьте на все вопросы, чтобы отправить тест.
         </p>
 
-        <Button :disabled="learning.isSubmitting || !canSubmit" @click="submitQuiz">
+        <Button :disabled="learning.isSubmitting || !canSubmit" @click="submitFinalQuiz">
           {{ learning.isSubmitting ? 'Отправка...' : 'Отправить ответы' }}
         </Button>
       </Card>
 
-      <Card v-if="learning.latestAttempt" class="quiz-view__result-card">
+      <Card v-if="learning.latestFinalQuizAttempt" class="quiz-view__result-card">
         <h2 class="quiz-view__result-title">Результат попытки</h2>
         <p class="quiz-view__result-line">
-          Балл: {{ learning.latestAttempt.score }} / {{ learning.latestAttempt.maxScore }}
+          Балл: {{ learning.latestFinalQuizAttempt.score }} / {{ learning.latestFinalQuizAttempt.maxScore }}
         </p>
         <p class="quiz-view__result-line">
-          Процент: {{ learning.latestAttempt.percent }}%
+          Процент: {{ learning.latestFinalQuizAttempt.percent }}%
         </p>
       </Card>
 
       <Card class="quiz-view__history-card">
         <h2 class="quiz-view__history-title">Мои попытки</h2>
-        <p v-if="learning.myAttempts.length === 0" class="quiz-view__state">
+        <p v-if="learning.myFinalQuizAttempts.length === 0" class="quiz-view__state">
           Попыток пока нет.
         </p>
         <ul v-else class="quiz-view__history-list">
           <li
-            v-for="(attempt, index) in learning.myAttempts"
+            v-for="(attempt, index) in learning.myFinalQuizAttempts"
             :key="attempt.id"
             class="quiz-view__history-item"
           >
@@ -346,3 +346,4 @@ onMounted(async () => {
   }
 }
 </style>
+

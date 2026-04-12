@@ -68,40 +68,43 @@ export class LearningAdminController {
     return this.learning.deleteLesson(lessonId);
   }
 
-  @Post('lessons/:lessonId/quizzes')
-  createQuiz(@Param('lessonId') lessonId: string, @Body() dto: CreateQuizDto) {
-    return this.learning.createQuiz(lessonId, dto);
+  @Post('lessons/:lessonId/final-quizzes')
+  createFinalQuiz(
+    @Param('lessonId') lessonId: string,
+    @Body() dto: CreateQuizDto,
+  ) {
+    return this.learning.createFinalQuiz(lessonId, dto);
   }
 
-  @Post('lessons/:lessonId/quizzes/constructor')
-  createQuizWithQuestions(
+  @Post('lessons/:lessonId/final-quizzes/constructor')
+  createFinalQuizWithQuestions(
     @Param('lessonId') lessonId: string,
     @Body() dto: CreateQuizWithQuestionsDto,
   ) {
-    return this.learning.createQuizWithQuestions(lessonId, dto);
+    return this.learning.createFinalQuizWithQuestions(lessonId, dto);
   }
 
-  @Get('quizzes/:quizId')
-  getQuizEditor(@Param('quizId') quizId: string) {
-    return this.learning.getQuizForEditor(quizId);
+  @Get('final-quizzes/:quizId')
+  getFinalQuizEditor(@Param('quizId') quizId: string) {
+    return this.learning.getFinalQuizForEditor(quizId);
   }
 
-  @Patch('quizzes/:quizId')
-  updateQuiz(@Param('quizId') quizId: string, @Body() dto: UpdateQuizDto) {
-    return this.learning.updateQuiz(quizId, dto);
+  @Patch('final-quizzes/:quizId')
+  updateFinalQuiz(@Param('quizId') quizId: string, @Body() dto: UpdateQuizDto) {
+    return this.learning.updateFinalQuiz(quizId, dto);
   }
 
-  @Delete('quizzes/:quizId')
-  deleteQuiz(@Param('quizId') quizId: string) {
-    return this.learning.deleteQuiz(quizId);
+  @Delete('final-quizzes/:quizId')
+  deleteFinalQuiz(@Param('quizId') quizId: string) {
+    return this.learning.deleteFinalQuiz(quizId);
   }
 
-  @Post('quizzes/:quizId/questions')
-  createQuestion(
+  @Post('final-quizzes/:quizId/questions')
+  createFinalQuizQuestion(
     @Param('quizId') quizId: string,
     @Body() dto: CreateQuestionDto,
   ) {
-    return this.learning.createQuestion(quizId, dto);
+    return this.learning.createFinalQuizQuestion(quizId, dto);
   }
 
   @Patch('questions/:questionId')

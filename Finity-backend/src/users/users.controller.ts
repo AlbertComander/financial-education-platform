@@ -38,6 +38,13 @@ export class UsersController {
   }
 
   @Patch('profile')
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
+    }),
+  )
   updateProfile(@Req() req: Request, @Body() dto: UpdateProfileDto) {
     return this.users.updateProfile(this.getUserId(req), dto);
   }
