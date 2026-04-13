@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowRight, BookOpen, Clock3, Lock, TrendingUp } from 'lucide-vue-next'
@@ -60,13 +60,7 @@ const totalMinutes = computed(() => {
   return topicRegularLessons.value.reduce((sum, lesson) => sum + lesson.estimated_minutes, 0)
 })
 
-const avgDifficulty = computed(() => {
-  if (topicRegularLessons.value.length === 0) return 0
-  const avg =
-    topicRegularLessons.value.reduce((sum, lesson) => sum + lesson.difficulty, 0) /
-    topicRegularLessons.value.length
-  return Number(avg.toFixed(1))
-})
+const topicDifficulty = computed(() => topic.value?.difficulty ?? 1)
 
 const completedLessonsCount = computed(() => {
   return topicRegularLessons.value.filter((lesson) => lesson.user_progress.status === 'completed').length
@@ -139,8 +133,8 @@ function openFinalExam() {
 }
 
 function difficultyLabel(value: number) {
-  if (value <= 3) return 'Базовый'
-  if (value <= 7) return 'Средний'
+  if (value <= 2) return 'Базовый'
+  if (value <= 4) return 'Средний'
   return 'Продвинутый'
 }
 
@@ -195,7 +189,7 @@ function lessonProgressWidth(value: number) {
           <div class="topic-view__chips">
             <span class="topic-view__chip">{{ lessonsCount }} уроков</span>
             <span class="topic-view__chip">{{ formatMinutes(totalMinutes) }}</span>
-            <span class="topic-view__chip">Сложность {{ avgDifficulty }}</span>
+            <span class="topic-view__chip">Сложность {{ topicDifficulty }}</span>
           </div>
         </div>
 
@@ -293,7 +287,7 @@ function lessonProgressWidth(value: number) {
                   {{ isTopicFinalExamUnlocked ? lessonStatusLabel(topicFinalExamLesson.user_progress.status) : 'Заблокирован' }}
                 </span>
                 <span class="topic-view__lesson-percent">
-                  {{ isTopicFinalExamUnlocked ? `${topicFinalExamLesson.user_progress.progress_percent}%` : '🔒' }}
+                  {{ isTopicFinalExamUnlocked ? `${topicFinalExamLesson.user_progress.progress_percent}%` : '—' }}
                 </span>
               </div>
               <div class="topic-view__lesson-progress-bar">
@@ -702,3 +696,4 @@ function lessonProgressWidth(value: number) {
   }
 }
 </style>
+

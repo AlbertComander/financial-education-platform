@@ -11,6 +11,7 @@ const TopicView = () => import('@/views/TopicView.vue')
 const LessonView = () => import('@/views/LessonView.vue')
 const LessonTestResultView = () => import('@/views/LessonTestResultView.vue')
 const QuizView = () => import('@/views/QuizView.vue')
+const AdminLearningView = () => import('@/views/AdminLearningView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -79,6 +80,12 @@ const router = createRouter({
       component: QuizView,
       meta: { requiresAuth: true },
     },
+    {
+      path: '/admin/learning',
+      name: 'admin-learning',
+      component: AdminLearningView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
   ],
 })
 
@@ -90,6 +97,10 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login' }
+  }
+
+  if (to.meta.requiresAdmin && auth.user?.role !== 'admin') {
+    return { name: 'profile' }
   }
 
   if (to.meta.publicOnly && auth.isAuthenticated) {

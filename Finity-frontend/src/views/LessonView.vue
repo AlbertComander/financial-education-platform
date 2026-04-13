@@ -147,6 +147,17 @@ function toConfigObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+function shuffleArray<T>(items: T[]) {
+  const next = [...items]
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    const current = next[index]
+    next[index] = next[randomIndex] as T
+    next[randomIndex] = current as T
+  }
+  return next
+}
+
 function toConfigString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -451,6 +462,31 @@ const currentLessonProgress = computed(() => {
     if (lesson) return lesson.user_progress
   }
   return null
+})
+
+const lessonRichContentHtml = computed(() => {
+  const lesson = learning.currentLesson
+  if (!lesson) return ''
+
+  const richBlock = lesson.lesson_blocks
+    .slice()
+    .sort((left, right) => left.order_index - right.order_index)
+    .find((block) => {
+      if (block.block_type !== 'rich_content') return false
+      if (!block.block_content || typeof block.block_content !== 'object' || Array.isArray(block.block_content)) {
+        return false
+      }
+
+      const payload = block.block_content as Record<string, unknown>
+      return typeof payload.html === 'string' && payload.html.trim().length > 0
+    })
+
+  if (!richBlock || !richBlock.block_content || typeof richBlock.block_content !== 'object' || Array.isArray(richBlock.block_content)) {
+    return ''
+  }
+
+  const payload = richBlock.block_content as Record<string, unknown>
+  return typeof payload.html === 'string' ? payload.html : ''
 })
 
 const displayReadPercent = computed(() => {
@@ -929,7 +965,7 @@ async function loadFinalQuiz(quizId: string) {
 
       if (question.q_type === 'sequence') {
         const config = parseFinalSequenceConfig(question)
-        sequenceState[question.id] = config ? config.items.map((item) => item.id) : []
+        sequenceState[question.id] = config ? shuffleArray(config.items.map((item) => item.id)) : []
         continue
       }
 
@@ -1248,7 +1284,14 @@ onBeforeUnmount(() => {
 
       <Card v-if="!isCurrentLessonFinalExam" class="lesson-view__article-card">
         <article ref="articleRef" class="lesson-view__article">
+          <div
+            v-if="lessonRichContentHtml"
+            class="lesson-view__article-rich"
+            v-html="lessonRichContentHtml"
+          />
+
           <section
+            v-else
             v-for="section in articleSections"
             :key="section.id"
             class="lesson-view__section"
@@ -1750,6 +1793,86 @@ onBeforeUnmount(() => {
 .lesson-view__article {
   display: grid;
   gap: 20px;
+}
+
+.lesson-view__article-rich :deep(h1),
+.lesson-view__article-rich :deep(h2),
+.lesson-view__article-rich :deep(h3) {
+  margin: 1.1em 0 0.55em;
+  line-height: 1.16;
+}
+
+.lesson-view__article-rich :deep(h1) {
+  font-size: 34px;
+}
+
+.lesson-view__article-rich :deep(h2) {
+  font-size: 27px;
+}
+
+.lesson-view__article-rich :deep(h3) {
+  font-size: 22px;
+}
+
+.lesson-view__article-rich :deep(p) {
+  margin: 0 0 1em;
+  line-height: 1.85;
+  text-wrap: pretty;
+}
+
+.lesson-view__article-rich :deep(ul),
+.lesson-view__article-rich :deep(ol) {
+  margin: 0 0 1em;
+  padding-left: 1.75em;
+  list-style-position: outside;
+}
+
+.lesson-view__article-rich :deep(ul) {
+  list-style: disc;
+}
+
+.lesson-view__article-rich :deep(ol) {
+  list-style: decimal;
+}
+
+.lesson-view__article-rich :deep(li) {
+  margin: 0.35em 0;
+  line-height: 1.75;
+}
+
+.lesson-view__article-rich :deep(li > p) {
+  margin: 0;
+}
+
+.lesson-view__article-rich :deep(p[data-first-line-indent='true']) {
+  text-indent: 1.5em;
+}
+
+.lesson-view__article-rich :deep(blockquote) {
+  margin: 0 0 1em;
+  padding: 0.95em 1.1em;
+  border-left: 4px solid hsl(214 78% 58%);
+  background: hsl(214 100% 98%);
+  border-radius: 0 16px 16px 0;
+}
+
+.lesson-view__article-rich :deep(hr) {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.lesson-view__article-rich :deep(a) {
+  color: hsl(214 76% 46%);
+  text-decoration: underline;
+}
+
+.lesson-view__article-rich :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.3em auto;
+  border-radius: 18px;
 }
 
 .lesson-view__section {

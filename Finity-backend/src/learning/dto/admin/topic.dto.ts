@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -29,6 +30,12 @@ export class CreateTopicDto {
   @Min(0)
   @IsOptional()
   orderIndex?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  @IsOptional()
+  difficulty?: number;
 }
 
 export class UpdateTopicDto {
@@ -53,4 +60,10 @@ export class UpdateTopicDto {
   @Min(0)
   @IsOptional()
   orderIndex?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  @IsOptional()
+  difficulty?: number;
 }

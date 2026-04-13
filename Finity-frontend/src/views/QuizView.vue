@@ -91,6 +91,17 @@ function toStringArray(value: unknown): string[] {
   return value.map((item) => toString(item)).filter((item) => item.length > 0)
 }
 
+function shuffleArray<T>(items: T[]) {
+  const next = [...items]
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    const current = next[index]
+    next[index] = next[randomIndex] as T
+    next[randomIndex] = current as T
+  }
+  return next
+}
+
 function parseSequenceConfig(question: FinalQuizQuestion): SequenceConfig | null {
   if (question.q_type !== 'sequence') return null
   const config = toObject(question.config_json)
@@ -205,7 +216,7 @@ function normalizeSelections() {
     if (question.q_type === 'sequence') {
       const sequenceConfig = parseSequenceConfig(question)
       nextSequence[question.id] = sequenceConfig
-        ? sequenceConfig.items.map((item) => item.id)
+        ? shuffleArray(sequenceConfig.items.map((item) => item.id))
         : []
       continue
     }
@@ -937,4 +948,3 @@ onMounted(async () => {
   }
 }
 </style>
-

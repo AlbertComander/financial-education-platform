@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, BookOpen, Check, Clock3, GraduationCap, Sparkles, TrendingUp } from 'lucide-vue-next'
@@ -128,15 +128,6 @@ function topicMinutes(topicId: string) {
   return splitTopicLessons(topic).regularLessons.reduce((sum, lesson) => sum + lesson.estimated_minutes, 0)
 }
 
-function topicAverage(topicId: string) {
-  const topic = sortedTopics.value.find((item) => item.id === topicId)
-  if (!topic) return 0
-  const lessons = splitTopicLessons(topic).regularLessons
-  if (lessons.length === 0) return 0
-  const avg = lessons.reduce((sum, lesson) => sum + lesson.difficulty, 0) / lessons.length
-  return Number(avg.toFixed(1))
-}
-
 function topicLessonCount(topicId: string) {
   const topic = sortedTopics.value.find((item) => item.id === topicId)
   if (!topic) return 0
@@ -189,14 +180,14 @@ function topicProgressCircleStyle(topicId: string) {
 }
 
 function difficultyLabel(value: number) {
-  if (value <= 3) return 'Базовый'
-  if (value <= 7) return 'Средний'
+  if (value <= 2) return 'Базовый'
+  if (value <= 4) return 'Средний'
   return 'Продвинутый'
 }
 
 function difficultyClass(value: number) {
-  if (value <= 3) return 'learning-page__badge--easy'
-  if (value <= 7) return 'learning-page__badge--medium'
+  if (value <= 2) return 'learning-page__badge--easy'
+  if (value <= 4) return 'learning-page__badge--medium'
   return 'learning-page__badge--hard'
 }
 
@@ -253,7 +244,7 @@ function topicCoverClass(index: number) {
               {{ featuredTopic?.title ?? 'Выберите тему' }}
             </h2>
             <p class="learning-page__continue-subtitle">
-              {{ featuredLesson?.title ?? 'Тема еще не содержит уроков' }}
+              {{ featuredLesson?.title ?? 'Тема ещё не содержит уроков' }}
             </p>
 
             <div v-if="featuredLesson" class="learning-page__continue-meta">
@@ -319,7 +310,7 @@ function topicCoverClass(index: number) {
           >
             <div class="learning-page__topic-main">
               <div class="learning-page__topic-cover" :class="topicCoverClass(topicIndex)">
-                <span class="learning-page__topic-level">{{ difficultyLabel(topicAverage(topic.id)) }}</span>
+                <span class="learning-page__topic-level">{{ difficultyLabel(topic.difficulty) }}</span>
               </div>
 
               <div class="learning-page__topic-info">
@@ -360,7 +351,7 @@ function topicCoverClass(index: number) {
                 <div class="learning-page__topic-meta">
                   <span class="learning-page__topic-chip">{{ topicLessonCount(topic.id) }} уроков</span>
                   <span class="learning-page__topic-chip">{{ formatMinutes(topicMinutes(topic.id)) }}</span>
-                  <span class="learning-page__topic-chip">Сложность {{ topicAverage(topic.id) }}</span>
+                  <span class="learning-page__topic-chip">Сложность {{ topic.difficulty }}</span>
                 </div>
               </div>
             </div>
@@ -842,3 +833,6 @@ function topicCoverClass(index: number) {
   }
 }
 </style>
+
+
+

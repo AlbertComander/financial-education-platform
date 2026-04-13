@@ -1,10 +1,16 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { static as serveStatic } from 'express';
 import { BigIntInterceptor } from './common/interceptors/bigint.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const uploadsRoot = join(process.cwd(), 'uploads');
+
+  mkdirSync(uploadsRoot, { recursive: true });
 
   app.enableCors({
     origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173',
@@ -12,6 +18,7 @@ async function bootstrap() {
   });
 
   app.use(cookieParser());
+  app.use('/uploads', serveStatic(uploadsRoot));
 
   app.useGlobalInterceptors(new BigIntInterceptor());
 
