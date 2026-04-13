@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -12,6 +12,7 @@ import iconLearning from '@/assets/icons/sidebar/learning.svg'
 import iconProfile from '@/assets/icons/sidebar/profile.svg'
 import iconSettings from '@/assets/icons/sidebar/settings.svg'
 import iconLogout from '@/assets/icons/sidebar/logout.svg'
+import iconAdmin from '@/assets/icons/sidebar/admin.svg'
 
 const props = defineProps<{
   open: boolean
@@ -34,6 +35,7 @@ const sidebarIconMap = {
   profile: iconProfile,
   settings: iconSettings,
   logout: iconLogout,
+  admin: iconAdmin,
 } as const
 
 const links = computed(() => {
@@ -44,13 +46,22 @@ const links = computed(() => {
     ]
   }
 
-  return [
+  const authenticatedLinks = [
     { name: 'Профиль', to: '/profile', iconKey: 'profile' },
     { name: 'Обучение', to: '/learning', iconKey: 'learning' },
     { name: 'Настройки', to: '/settings', iconKey: 'settings' },
   ]
-})
 
+  if (auth.user?.role === 'admin') {
+    authenticatedLinks.splice(2, 0, {
+      name: 'Конструктор',
+      to: '/admin/learning',
+      iconKey: 'admin',
+    })
+  }
+
+  return authenticatedLinks
+})
 const avatarUrl = computed(() => {
   const value = userStore.profile?.base_params?.avatar_data_url
   return typeof value === 'string' ? value : undefined
@@ -460,3 +471,4 @@ onMounted(() => {
   }
 }
 </style>
+

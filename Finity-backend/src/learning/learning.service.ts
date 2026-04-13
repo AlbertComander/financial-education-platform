@@ -1,8 +1,11 @@
-import {
+﻿import {
   BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { LearningErrors } from '../common/errors';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +24,10 @@ import {
   UpdateQuestionDto,
 } from './dto/admin/question.dto';
 import { CreateAnswerDto, UpdateAnswerDto } from './dto/admin/answer.dto';
+import {
+  CreateLessonQuickQuestionDto,
+  UpdateLessonQuickQuestionDto,
+} from './dto/admin/quick-check.dto';
 
 type EvaluatedQuestion = {
   questionId: bigint;
@@ -423,11 +430,13 @@ export class LearningService {
         id: true,
         title: true,
         description: true,
+        difficulty: true,
         order_index: true,
         lessons: {
-          orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+          orderBy: [{ order_index: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
+            order_index: true,
             lesson_type: true,
             title: true,
             summary: true,
@@ -717,7 +726,7 @@ export class LearningService {
     if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
     if (lesson.lesson_type !== 'lesson') {
       throw new BadRequestException(
-        'Мини-тест доступен только для обычного урока.',
+        'РњРёРЅРё-С‚РµСЃС‚ РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РґР»СЏ РѕР±С‹С‡РЅРѕРіРѕ СѓСЂРѕРєР°.',
       );
     }
 
@@ -926,10 +935,10 @@ export class LearningService {
       },
     });
 
-    if (!question) throw new NotFoundException('Вопрос мини-теста не найден.');
+    if (!question) throw new NotFoundException('Р’РѕРїСЂРѕСЃ РјРёРЅРё-С‚РµСЃС‚Р° РЅРµ РЅР°Р№РґРµРЅ.');
     if (question.lessons.lesson_type !== 'lesson') {
       throw new BadRequestException(
-        'Ответ на мини-тест доступен только для обычного урока.',
+        'РћС‚РІРµС‚ РЅР° РјРёРЅРё-С‚РµСЃС‚ РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РґР»СЏ РѕР±С‹С‡РЅРѕРіРѕ СѓСЂРѕРєР°.',
       );
     }
 
@@ -938,7 +947,7 @@ export class LearningService {
     );
     if (!selectedAnswer) {
       throw new BadRequestException(
-        'Выбранный вариант не относится к этому вопросу.',
+        'Р’С‹Р±СЂР°РЅРЅС‹Р№ РІР°СЂРёР°РЅС‚ РЅРµ РѕС‚РЅРѕСЃРёС‚СЃСЏ Рє СЌС‚РѕРјСѓ РІРѕРїСЂРѕСЃСѓ.',
       );
     }
 
@@ -1267,6 +1276,241 @@ export class LearningService {
     }
   }
 
+  private validateQuickQuestionAnswers(answers: Array<{ isCorrect: boolean }>) {
+    if (answers.length < 2) {
+      throw new BadRequestException(LearningErrors.questionMinAnswers);
+    }
+
+    const correctCount = answers.filter((answer) => answer.isCorrect).length;
+
+    if (correctCount !== 1) {
+      throw new BadRequestException(
+        LearningErrors.singleQuestionExactOneCorrect,
+      );
+    }
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  private hasHtmlMarkup(value: string) {
+    return /<\/?[a-z][\s\S]*>/i.test(value);
+  }
+
+  private plainTextToHtml(value: string) {
+    const normalized = value.trim();
+    if (!normalized) {
+      return '';
+    }
+
+    return normalized
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim())
+      .filter((paragraph) => paragraph.length > 0)
+      .map((paragraph) => {
+        const lineHtml = paragraph
+          .split('\n')
+          .map((line) => this.escapeHtml(line.trim()))
+          .join('<br>');
+
+        return `<p>${lineHtml}</p>`;
+      })
+      .join('');
+  }
+
+  private normalizeLessonEditorHtml(content: string) {
+    const normalized = content.trim();
+    if (!normalized) {
+      return '';
+    }
+
+    if (this.hasHtmlMarkup(normalized)) {
+      return normalized;
+    }
+
+    return this.plainTextToHtml(normalized);
+  }
+
+  private htmlToPlainText(value: string) {
+    return value
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(
+        /<\/(p|div|section|article|h1|h2|h3|h4|h5|h6|li|blockquote)>/gi,
+        '\n',
+      )
+      .replace(/<li>/gi, '- ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+  }
+
+  private lessonBlocksToEditorContent(
+    lessonBlocks: Array<{
+      block_type: string;
+      block_content: unknown;
+      order_index: number;
+    }>,
+    fallbackContent: string,
+  ) {
+    if (!lessonBlocks.length) {
+      return this.normalizeLessonEditorHtml(fallbackContent);
+    }
+
+    const normalizeText = (value: unknown) =>
+      typeof value === 'string' ? value.trim() : '';
+
+    const richBlock = lessonBlocks.find((block) => {
+      if (block.block_type !== 'rich_content') {
+        return false;
+      }
+
+      if (
+        !block.block_content ||
+        typeof block.block_content !== 'object' ||
+        Array.isArray(block.block_content)
+      ) {
+        return false;
+      }
+
+      const payload = block.block_content as Record<string, unknown>;
+      return normalizeText(payload.html).length > 0;
+    });
+
+    if (
+      richBlock &&
+      richBlock.block_content &&
+      typeof richBlock.block_content === 'object' &&
+      !Array.isArray(richBlock.block_content)
+    ) {
+      const payload = richBlock.block_content as Record<string, unknown>;
+      return normalizeText(payload.html);
+    }
+
+    const sections = lessonBlocks
+      .slice()
+      .sort((left, right) => left.order_index - right.order_index)
+      .map((block, index) => {
+        if (typeof block.block_content === 'string') {
+          return this.plainTextToHtml(block.block_content);
+        }
+
+        if (
+          !block.block_content ||
+          typeof block.block_content !== 'object' ||
+          Array.isArray(block.block_content)
+        ) {
+          return '';
+        }
+
+        const payload = block.block_content as Record<string, unknown>;
+        const title = normalizeText(payload.title) || `Раздел ${index + 1}`;
+        const body = [normalizeText(payload.body), normalizeText(payload.text)]
+          .filter((part) => part.length > 0)
+          .join('\n\n');
+        const itemsSource = Array.isArray(payload.items)
+          ? payload.items
+          : Array.isArray(payload.list)
+            ? payload.list
+            : [];
+        const items = itemsSource
+          .map((item) => normalizeText(item))
+          .filter((item) => item.length > 0);
+
+        const parts: string[] = [];
+        if (title.length > 0) {
+          parts.push(`<h2>${this.escapeHtml(title)}</h2>`);
+        }
+        if (body.length > 0) {
+          parts.push(this.plainTextToHtml(body));
+        }
+        if (items.length > 0) {
+          parts.push(
+            `<ul>${items
+              .map((item) => `<li>${this.escapeHtml(item)}</li>`)
+              .join('')}</ul>`,
+          );
+        }
+
+        return parts.join('');
+      })
+      .filter((section) => section.length > 0);
+
+    return sections.length > 0
+      ? sections.join('')
+      : this.normalizeLessonEditorHtml(fallbackContent);
+  }
+
+  private buildLessonBlocksFromContent(content: string) {
+    const html = this.normalizeLessonEditorHtml(content);
+
+    if (!html) {
+      return [];
+    }
+
+    return [
+      {
+        block_type: 'rich_content',
+        order_index: 0,
+        block_content: {
+          html,
+        },
+      },
+    ];
+  }
+
+  async saveAdminLessonImage(file: {
+    originalname: string;
+    mimetype: string;
+    size: number;
+    buffer: Buffer;
+  }) {
+    const allowedMimeTypes = new Map<string, string>([
+      ['image/png', '.png'],
+      ['image/jpeg', '.jpg'],
+      ['image/webp', '.webp'],
+      ['image/gif', '.gif'],
+    ]);
+
+    const fallbackExtension = allowedMimeTypes.get(file.mimetype);
+    if (!fallbackExtension) {
+      throw new BadRequestException(
+        'РџРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ С‚РѕР»СЊРєРѕ PNG, JPEG, WEBP Рё GIF.',
+      );
+    }
+
+    const uploadsDir = join(process.cwd(), 'uploads', 'lesson-images');
+    await mkdir(uploadsDir, { recursive: true });
+
+    const originalExtension = extname(file.originalname).toLowerCase();
+    const extension =
+      originalExtension && [...allowedMimeTypes.values()].includes(originalExtension)
+        ? originalExtension
+        : fallbackExtension;
+    const fileName = `${randomUUID()}${extension}`;
+
+    await writeFile(join(uploadsDir, fileName), file.buffer);
+
+    return {
+      url: `/uploads/lesson-images/${fileName}`,
+    };
+  }
+
   async getAdminTopicsTree() {
     return this.prisma.topics.findMany({
       orderBy: { order_index: 'asc' },
@@ -1274,19 +1518,29 @@ export class LearningService {
         id: true,
         title: true,
         description: true,
+        difficulty: true,
         order_index: true,
         lessons: {
-          orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+          orderBy: [{ order_index: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
+            order_index: true,
             lesson_type: true,
             title: true,
             summary: true,
             difficulty: true,
             estimated_minutes: true,
             created_at: true,
+            quizzes: {
+              orderBy: { id: 'asc' },
+              select: {
+                id: true,
+                title: true,
+              },
+            },
             _count: {
               select: {
+                lesson_quick_questions: true,
                 quizzes: true,
               },
             },
@@ -1301,6 +1555,7 @@ export class LearningService {
       data: {
         title: dto.title,
         description: dto.description ?? null,
+        difficulty: dto.difficulty ?? 1,
         order_index: dto.orderIndex ?? 0,
       },
     });
@@ -1322,6 +1577,7 @@ export class LearningService {
         ...(dto.description !== undefined
           ? { description: dto.description }
           : {}),
+        ...(dto.difficulty !== undefined ? { difficulty: dto.difficulty } : {}),
         ...(dto.orderIndex !== undefined
           ? { order_index: dto.orderIndex }
           : {}),
@@ -1341,6 +1597,7 @@ export class LearningService {
 
   async createLesson(topicIdRaw: string, dto: CreateLessonDto) {
     const topicId = this.parseBigInt(topicIdRaw, 'topicId');
+    const lessonContent = this.htmlToPlainText(dto.content);
 
     const topic = await this.prisma.topics.findUnique({
       where: { id: topicId },
@@ -1348,13 +1605,37 @@ export class LearningService {
     });
     if (!topic) throw new NotFoundException(LearningErrors.topicNotFound);
 
+    let orderIndex = dto.orderIndex;
+    if (orderIndex === undefined) {
+      const lastLesson = await this.prisma.lessons.findFirst({
+        where: { topic_id: topicId },
+        orderBy: { order_index: 'desc' },
+        select: { order_index: true },
+      });
+      orderIndex = (lastLesson?.order_index ?? 0) + 1;
+    }
+
     return this.prisma.lessons.create({
       data: {
         topic_id: topicId,
+        order_index: orderIndex,
         lesson_type: dto.lessonType ?? 'lesson',
         title: dto.title,
         summary: dto.summary ?? null,
-        content: dto.content,
+        content: lessonContent,
+        lesson_blocks: {
+          create: this.buildLessonBlocksFromContent(dto.content),
+        },
+        ...(dto.lessonType === 'final_exam'
+          ? {
+              quizzes: {
+                create: {
+                  title: dto.title,
+                  description: dto.summary ?? null,
+                },
+              },
+            }
+          : {}),
         ...(dto.difficulty !== undefined ? { difficulty: dto.difficulty } : {}),
         ...(dto.estimatedMinutes !== undefined
           ? { estimated_minutes: dto.estimatedMinutes }
@@ -1365,28 +1646,155 @@ export class LearningService {
 
   async updateLesson(lessonIdRaw: string, dto: UpdateLessonDto) {
     const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+    const lessonContent =
+      dto.content !== undefined ? this.htmlToPlainText(dto.content) : undefined;
 
     const lesson = await this.prisma.lessons.findUnique({
       where: { id: lessonId },
-      select: { id: true },
+      select: {
+        id: true,
+        lesson_type: true,
+        title: true,
+        summary: true,
+        quizzes: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+          },
+        },
+      },
     });
     if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
 
-    return this.prisma.lessons.update({
+    return this.prisma.$transaction(async (tx) => {
+      if (dto.content !== undefined) {
+        await tx.lesson_blocks.deleteMany({
+          where: { lesson_id: lessonId },
+        });
+      }
+
+      const updatedLesson = await tx.lessons.update({
+        where: { id: lessonId },
+        data: {
+          ...(dto.orderIndex !== undefined
+            ? { order_index: dto.orderIndex }
+            : {}),
+          ...(dto.lessonType !== undefined
+            ? { lesson_type: dto.lessonType }
+            : {}),
+          ...(dto.title !== undefined ? { title: dto.title } : {}),
+          ...(dto.summary !== undefined ? { summary: dto.summary } : {}),
+          ...(lessonContent !== undefined ? { content: lessonContent } : {}),
+          ...(dto.content !== undefined
+            ? {
+                lesson_blocks: {
+                  create: this.buildLessonBlocksFromContent(dto.content),
+                },
+              }
+            : {}),
+          ...(dto.difficulty !== undefined ? { difficulty: dto.difficulty } : {}),
+          ...(dto.estimatedMinutes !== undefined
+            ? { estimated_minutes: dto.estimatedMinutes }
+            : {}),
+        },
+      });
+
+      const nextLessonType = dto.lessonType ?? lesson.lesson_type;
+
+      if (nextLessonType === 'final_exam') {
+        const quizPayload = {
+          title: dto.title ?? lesson.title,
+          description:
+            dto.summary !== undefined ? dto.summary ?? null : lesson.summary,
+        };
+
+        const firstQuiz = lesson.quizzes[0];
+
+        if (firstQuiz) {
+          await tx.quizzes.update({
+            where: { id: firstQuiz.id },
+            data: quizPayload,
+          });
+        } else {
+          await tx.quizzes.create({
+            data: {
+              lesson_id: lessonId,
+              ...quizPayload,
+            },
+          });
+        }
+      }
+
+      return updatedLesson;
+    });
+  }
+
+  async getAdminLessonEditor(lessonIdRaw: string) {
+    const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+
+    const lesson = await this.prisma.lessons.findUnique({
       where: { id: lessonId },
-      data: {
-        ...(dto.lessonType !== undefined
-          ? { lesson_type: dto.lessonType }
-          : {}),
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(dto.summary !== undefined ? { summary: dto.summary } : {}),
-        ...(dto.content !== undefined ? { content: dto.content } : {}),
-        ...(dto.difficulty !== undefined ? { difficulty: dto.difficulty } : {}),
-        ...(dto.estimatedMinutes !== undefined
-          ? { estimated_minutes: dto.estimatedMinutes }
-          : {}),
+      select: {
+        id: true,
+        topic_id: true,
+        order_index: true,
+        lesson_type: true,
+        title: true,
+        summary: true,
+        content: true,
+        difficulty: true,
+        estimated_minutes: true,
+        created_at: true,
+        lesson_blocks: {
+          orderBy: [{ order_index: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            block_type: true,
+            block_content: true,
+            order_index: true,
+          },
+        },
+        lesson_quick_questions: {
+          orderBy: [{ order_index: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            text: true,
+            order_index: true,
+            lesson_quick_answers: {
+              orderBy: { id: 'asc' },
+              select: {
+                id: true,
+                text: true,
+                is_correct: true,
+                feedback_text: true,
+              },
+            },
+          },
+        },
+        quizzes: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            _count: {
+              select: {
+                questions: true,
+              },
+            },
+          },
+        },
       },
     });
+
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+    return {
+      ...lesson,
+      content: this.lessonBlocksToEditorContent(
+        lesson.lesson_blocks,
+        lesson.content,
+      ),
+    };
   }
 
   async deleteLesson(lessonIdRaw: string) {
@@ -1396,6 +1804,176 @@ export class LearningService {
     });
     if (result.count === 0)
       throw new NotFoundException(LearningErrors.lessonNotFound);
+    return { deleted: result.count };
+  }
+
+  async createLessonQuickQuestion(
+    lessonIdRaw: string,
+    dto: CreateLessonQuickQuestionDto,
+  ) {
+    const lessonId = this.parseBigInt(lessonIdRaw, 'lessonId');
+
+    const lesson = await this.prisma.lessons.findUnique({
+      where: { id: lessonId },
+      select: { id: true },
+    });
+    if (!lesson) throw new NotFoundException(LearningErrors.lessonNotFound);
+
+    this.validateQuickQuestionAnswers(dto.answers);
+
+    const createdQuestion = await this.prisma.$transaction(async (tx) => {
+      let orderIndex = dto.orderIndex;
+      if (orderIndex === undefined) {
+        const lastQuestion = await tx.lesson_quick_questions.findFirst({
+          where: { lesson_id: lessonId },
+          orderBy: { order_index: 'desc' },
+          select: { order_index: true },
+        });
+        orderIndex = (lastQuestion?.order_index ?? 0) + 1;
+      }
+
+      const question = await tx.lesson_quick_questions.create({
+        data: {
+          lesson_id: lessonId,
+          text: dto.text,
+          order_index: orderIndex,
+        },
+      });
+
+      await tx.lesson_quick_answers.createMany({
+        data: dto.answers.map((answer) => ({
+          question_id: question.id,
+          text: answer.text,
+          is_correct: answer.isCorrect,
+          feedback_text: answer.feedbackText ?? '',
+        })),
+      });
+
+      return tx.lesson_quick_questions.findUnique({
+        where: { id: question.id },
+        select: {
+          id: true,
+          lesson_id: true,
+          text: true,
+          order_index: true,
+          lesson_quick_answers: {
+            orderBy: { id: 'asc' },
+            select: {
+              id: true,
+              text: true,
+              is_correct: true,
+              feedback_text: true,
+            },
+          },
+        },
+      });
+    });
+
+    if (!createdQuestion) {
+      throw new NotFoundException(LearningErrors.questionNotFound);
+    }
+
+    return createdQuestion;
+  }
+
+  async updateLessonQuickQuestion(
+    questionIdRaw: string,
+    dto: UpdateLessonQuickQuestionDto,
+  ) {
+    const questionId = this.parseBigInt(questionIdRaw, 'questionId');
+
+    const question = await this.prisma.lesson_quick_questions.findUnique({
+      where: { id: questionId },
+      select: {
+        id: true,
+        lesson_id: true,
+        text: true,
+        order_index: true,
+        lesson_quick_answers: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            text: true,
+            is_correct: true,
+            feedback_text: true,
+          },
+        },
+      },
+    });
+
+    if (!question) throw new NotFoundException(LearningErrors.questionNotFound);
+
+    const nextAnswers =
+      dto.answers ??
+      question.lesson_quick_answers.map((answer) => ({
+        text: answer.text,
+        isCorrect: answer.is_correct,
+        feedbackText: answer.feedback_text,
+      }));
+
+    this.validateQuickQuestionAnswers(nextAnswers);
+
+    const updatedQuestion = await this.prisma.$transaction(async (tx) => {
+      await tx.lesson_quick_questions.update({
+        where: { id: questionId },
+        data: {
+          ...(dto.text !== undefined ? { text: dto.text } : {}),
+          ...(dto.orderIndex !== undefined
+            ? { order_index: dto.orderIndex }
+            : {}),
+        },
+      });
+
+      if (dto.answers !== undefined) {
+        await tx.lesson_quick_answers.deleteMany({
+          where: { question_id: questionId },
+        });
+
+        await tx.lesson_quick_answers.createMany({
+          data: dto.answers.map((answer) => ({
+            question_id: questionId,
+            text: answer.text,
+            is_correct: answer.isCorrect,
+            feedback_text: answer.feedbackText ?? '',
+          })),
+        });
+      }
+
+      return tx.lesson_quick_questions.findUnique({
+        where: { id: questionId },
+        select: {
+          id: true,
+          lesson_id: true,
+          text: true,
+          order_index: true,
+          lesson_quick_answers: {
+            orderBy: { id: 'asc' },
+            select: {
+              id: true,
+              text: true,
+              is_correct: true,
+              feedback_text: true,
+            },
+          },
+        },
+      });
+    });
+
+    if (!updatedQuestion) {
+      throw new NotFoundException(LearningErrors.questionNotFound);
+    }
+
+    return updatedQuestion;
+  }
+
+  async deleteLessonQuickQuestion(questionIdRaw: string) {
+    const questionId = this.parseBigInt(questionIdRaw, 'questionId');
+    const result = await this.prisma.lesson_quick_questions.deleteMany({
+      where: { id: questionId },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException(LearningErrors.questionNotFound);
+    }
     return { deleted: result.count };
   }
 
@@ -1650,6 +2228,8 @@ export class LearningService {
         config_json: true,
         answers: {
           select: {
+            id: true,
+            text: true,
             is_correct: true,
           },
         },
@@ -1658,9 +2238,15 @@ export class LearningService {
     if (!question) throw new NotFoundException(LearningErrors.questionNotFound);
 
     const nextType = this.normalizeQuestionType(dto.qType ?? question.q_type);
+    const nextAnswers =
+      dto.answers ??
+      question.answers.map((answer) => ({
+        text: answer.text,
+        isCorrect: answer.is_correct,
+      }));
 
-    if (nextType === 'single') {
-      const correctCount = question.answers.filter((a) => a.is_correct).length;
+    if (nextType === 'single' && dto.answers === undefined) {
+      const correctCount = nextAnswers.filter((answer) => answer.isCorrect).length;
       if (correctCount !== 1) {
         throw new BadRequestException(
           LearningErrors.switchToSingleRequiresOneCorrect,
@@ -1670,23 +2256,67 @@ export class LearningService {
 
     this.validateQuestionPayload(
       nextType,
-      question.answers.map((answer) => ({ isCorrect: answer.is_correct })),
+      nextAnswers.map((answer) => ({ isCorrect: answer.isCorrect })),
       dto.config ?? question.config_json,
     );
 
-    return this.prisma.questions.update({
-      where: { id: questionId },
-      data: {
-        ...(dto.text !== undefined ? { text: dto.text } : {}),
-        ...(dto.qType !== undefined ? { q_type: dto.qType } : {}),
-        ...(dto.config !== undefined
-          ? { config_json: this.toPrismaJson(dto.config) }
-          : {}),
-        ...(dto.orderIndex !== undefined
-          ? { order_index: dto.orderIndex }
-          : {}),
-      },
+    const updatedQuestion = await this.prisma.$transaction(async (tx) => {
+      await tx.questions.update({
+        where: { id: questionId },
+        data: {
+          ...(dto.text !== undefined ? { text: dto.text } : {}),
+          ...(dto.qType !== undefined ? { q_type: dto.qType } : {}),
+          ...(dto.config !== undefined
+            ? { config_json: this.toPrismaJson(dto.config) }
+            : {}),
+          ...(dto.orderIndex !== undefined
+            ? { order_index: dto.orderIndex }
+            : {}),
+        },
+      });
+
+      const shouldReplaceAnswers =
+        dto.answers !== undefined || !['single', 'multiple'].includes(nextType);
+
+      if (shouldReplaceAnswers) {
+        await tx.answers.deleteMany({
+          where: { question_id: questionId },
+        });
+
+        if (['single', 'multiple'].includes(nextType) && dto.answers !== undefined) {
+          await tx.answers.createMany({
+            data: dto.answers.map((answer) => ({
+              question_id: questionId,
+              text: answer.text,
+              is_correct: answer.isCorrect,
+            })),
+          });
+        }
+      }
+
+      return tx.questions.findUnique({
+        where: { id: questionId },
+        select: {
+          id: true,
+          quiz_id: true,
+          text: true,
+          q_type: true,
+          config_json: true,
+          order_index: true,
+          answers: {
+            orderBy: { id: 'asc' },
+            select: {
+              id: true,
+              text: true,
+              is_correct: true,
+            },
+          },
+        },
+      });
     });
+
+    if (!updatedQuestion) throw new NotFoundException(LearningErrors.questionNotFound);
+    return updatedQuestion;
   }
 
   async deleteQuestion(questionIdRaw: string) {

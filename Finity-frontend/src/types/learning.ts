@@ -24,6 +24,7 @@ export type Topic = {
   id: string
   title: string
   description: string | null
+  difficulty: number
   order_index: number
   lessons: TopicLesson[]
 }

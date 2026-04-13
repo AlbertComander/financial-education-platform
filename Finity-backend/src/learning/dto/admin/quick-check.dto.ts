@@ -3,10 +3,8 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
-  IsIn,
   IsInt,
   IsNotEmpty,
-  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -14,16 +12,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-export const QUESTION_TYPES = [
-  'single',
-  'multiple',
-  'open',
-  'sequence',
-  'matching',
-] as const;
-export type QuestionType = (typeof QUESTION_TYPES)[number];
-
-export class QuestionAnswerInputDto {
+export class LessonQuickAnswerInputDto {
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -34,9 +23,17 @@ export class QuestionAnswerInputDto {
 
   @IsBoolean()
   isCorrect!: boolean;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @IsOptional()
+  @MaxLength(1000)
+  feedbackText?: string;
 }
 
-export class CreateQuestionDto {
+export class CreateLessonQuickQuestionDto {
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -45,28 +42,19 @@ export class CreateQuestionDto {
   @MaxLength(1000)
   text!: string;
 
-  @IsIn(QUESTION_TYPES)
-  @IsOptional()
-  qType?: QuestionType;
-
   @IsInt()
   @Min(0)
   @IsOptional()
   orderIndex?: number;
 
   @IsArray()
-  @ArrayMinSize(1)
+  @ArrayMinSize(2)
   @ValidateNested({ each: true })
-  @Type(() => QuestionAnswerInputDto)
-  @IsOptional()
-  answers?: QuestionAnswerInputDto[];
-
-  @IsObject()
-  @IsOptional()
-  config?: Record<string, unknown>;
+  @Type(() => LessonQuickAnswerInputDto)
+  answers!: LessonQuickAnswerInputDto[];
 }
 
-export class UpdateQuestionDto {
+export class UpdateLessonQuickQuestionDto {
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -76,22 +64,15 @@ export class UpdateQuestionDto {
   @MaxLength(1000)
   text?: string;
 
-  @IsIn(QUESTION_TYPES)
-  @IsOptional()
-  qType?: QuestionType;
-
   @IsInt()
   @Min(0)
   @IsOptional()
   orderIndex?: number;
 
   @IsArray()
+  @ArrayMinSize(2)
   @ValidateNested({ each: true })
-  @Type(() => QuestionAnswerInputDto)
+  @Type(() => LessonQuickAnswerInputDto)
   @IsOptional()
-  answers?: QuestionAnswerInputDto[];
-
-  @IsObject()
-  @IsOptional()
-  config?: Record<string, unknown>;
+  answers?: LessonQuickAnswerInputDto[];
 }

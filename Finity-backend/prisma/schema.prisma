@@ -37,6 +37,7 @@ model lesson_blocks {
 model lessons {
   id                   BigInt                 @id @default(autoincrement())
   topic_id             BigInt
+  order_index          Int                    @default(0)
   lesson_type          String                 @default("lesson")
   title                String
   summary              String?
@@ -52,6 +53,7 @@ model lessons {
   user_lesson_progress user_lesson_progress[]
 
   @@index([topic_id], map: "idx_lessons_topic")
+  @@index([topic_id, order_index], map: "idx_lessons_topic_order")
 }
 
 model questions {
@@ -176,6 +178,7 @@ model topics {
   id                 BigInt               @id @default(autoincrement())
   title              String
   description        String?
+  difficulty         Int                  @default(1) @db.SmallInt
   order_index        Int                  @default(0)
   lessons            lessons[]
   scenarios          scenarios[]
@@ -261,6 +264,7 @@ model lesson_quick_answers {
   lesson_quick_questions  lesson_quick_questions @relation(fields: [question_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user_lesson_quick_answers user_lesson_quick_answers[]
 
+  @@unique([question_id, text])
   @@index([question_id], map: "idx_quick_answers_question")
 }
 

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -6,9 +7,13 @@ import {
   Param,
   Patch,
   Post,
+  UploadedFile,
+  UseInterceptors,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Roles } from '../auth/roles.decorator';
 import { LearningService } from './learning.service';
 import { CreateTopicDto, UpdateTopicDto } from './dto/admin/topic.dto';
@@ -20,12 +25,41 @@ import {
 } from './dto/admin/quiz.dto';
 import { CreateQuestionDto, UpdateQuestionDto } from './dto/admin/question.dto';
 import { CreateAnswerDto, UpdateAnswerDto } from './dto/admin/answer.dto';
+import {
+  CreateLessonQuickQuestionDto,
+  UpdateLessonQuickQuestionDto,
+} from './dto/admin/quick-check.dto';
 
 @Controller('admin/learning')
 @Roles('admin')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class LearningAdminController {
   constructor(private readonly learning: LearningService) {}
+
+  @Post('lesson-images')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+    }),
+  )
+  uploadLessonImage(
+    @UploadedFile()
+    file?: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    if (!file) {
+      throw new BadRequestException('Изображение не передано.');
+    }
+
+    return this.learning.saveAdminLessonImage(file);
+  }
 
   @Get('topics')
   getTopicsTree() {
@@ -63,9 +97,35 @@ export class LearningAdminController {
     return this.learning.updateLesson(lessonId, dto);
   }
 
+  @Get('lessons/:lessonId')
+  getLessonEditor(@Param('lessonId') lessonId: string) {
+    return this.learning.getAdminLessonEditor(lessonId);
+  }
+
   @Delete('lessons/:lessonId')
   deleteLesson(@Param('lessonId') lessonId: string) {
     return this.learning.deleteLesson(lessonId);
+  }
+
+  @Post('lessons/:lessonId/quick-questions')
+  createLessonQuickQuestion(
+    @Param('lessonId') lessonId: string,
+    @Body() dto: CreateLessonQuickQuestionDto,
+  ) {
+    return this.learning.createLessonQuickQuestion(lessonId, dto);
+  }
+
+  @Patch('quick-questions/:questionId')
+  updateLessonQuickQuestion(
+    @Param('questionId') questionId: string,
+    @Body() dto: UpdateLessonQuickQuestionDto,
+  ) {
+    return this.learning.updateLessonQuickQuestion(questionId, dto);
+  }
+
+  @Delete('quick-questions/:questionId')
+  deleteLessonQuickQuestion(@Param('questionId') questionId: string) {
+    return this.learning.deleteLessonQuickQuestion(questionId);
   }
 
   @Post('lessons/:lessonId/final-quizzes')

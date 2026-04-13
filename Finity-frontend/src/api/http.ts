@@ -1,5 +1,5 @@
 import type { HttpRequestOptions } from '@/types/api'
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
   status: number
@@ -15,7 +15,11 @@ export async function httpRequest<T>(path: string, options: HttpRequestOptions =
   const { method = 'GET', body, accessToken } = options
 
   const headers = new Headers()
-  headers.set('Content-Type', 'application/json')
+  const isFormData = body instanceof FormData
+
+  if (!isFormData) {
+    headers.set('Content-Type', 'application/json')
+  }
 
   if (accessToken) {
     headers.set('Authorization', `Bearer ${accessToken}`)
@@ -25,7 +29,12 @@ export async function httpRequest<T>(path: string, options: HttpRequestOptions =
     method,
     headers,
     credentials: 'include',
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body:
+      body === undefined
+        ? undefined
+        : isFormData
+          ? body
+          : JSON.stringify(body),
   })
 
   const text = await response.text()

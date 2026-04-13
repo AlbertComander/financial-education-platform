@@ -11,6 +11,11 @@ import {
 } from 'class-validator';
 
 export class CreateLessonDto {
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  orderIndex?: number;
+
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
@@ -56,6 +61,11 @@ export class CreateLessonDto {
 }
 
 export class UpdateLessonDto {
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  orderIndex?: number;
+
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
