@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -13,7 +14,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-export const QUESTION_TYPES = ['single', 'multiple'] as const;
+export const QUESTION_TYPES = [
+  'single',
+  'multiple',
+  'open',
+  'sequence',
+  'matching',
+] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
 export class QuestionAnswerInputDto {
@@ -48,10 +55,15 @@ export class CreateQuestionDto {
   orderIndex?: number;
 
   @IsArray()
-  @ArrayMinSize(2)
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => QuestionAnswerInputDto)
-  answers!: QuestionAnswerInputDto[];
+  @IsOptional()
+  answers?: QuestionAnswerInputDto[];
+
+  @IsObject()
+  @IsOptional()
+  config?: Record<string, unknown>;
 }
 
 export class UpdateQuestionDto {
@@ -72,4 +84,8 @@ export class UpdateQuestionDto {
   @Min(0)
   @IsOptional()
   orderIndex?: number;
+
+  @IsObject()
+  @IsOptional()
+  config?: Record<string, unknown>;
 }

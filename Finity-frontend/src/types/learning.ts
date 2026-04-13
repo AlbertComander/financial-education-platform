@@ -102,10 +102,41 @@ export type FinalQuizAnswer = {
   text: string
 }
 
+export type FinalQuizOpenConfig = {
+  acceptedAnswers?: string[]
+  caseSensitive?: boolean
+  trim?: boolean
+  collapseSpaces?: boolean
+}
+
+export type FinalQuizSequenceConfig = {
+  items: Array<{
+    id: string
+    text: string
+  }>
+  correctOrder: string[]
+}
+
+export type FinalQuizMatchingConfig = {
+  leftItems: Array<{
+    id: string
+    text: string
+  }>
+  rightItems: Array<{
+    id: string
+    text: string
+  }>
+  correctPairs: Array<{
+    leftId: string
+    rightId: string
+  }>
+}
+
 export type FinalQuizQuestion = {
   id: string
   text: string
-  q_type: 'single' | 'multiple'
+  q_type: 'single' | 'multiple' | 'open' | 'sequence' | 'matching'
+  config_json: FinalQuizOpenConfig | FinalQuizSequenceConfig | FinalQuizMatchingConfig | Record<string, unknown>
   order_index: number
   answers: FinalQuizAnswer[]
 }
@@ -120,7 +151,13 @@ export type FinalQuiz = {
 
 export type FinalQuizAttemptSubmitAnswer = {
   questionId: string
-  selectedAnswerIds: string[]
+  selectedAnswerIds?: string[]
+  textAnswer?: string
+  orderedItemIds?: string[]
+  matchingPairs?: Array<{
+    leftId: string
+    rightId: string
+  }>
 }
 
 export type FinalQuizAttemptSubmitResult = {
@@ -147,6 +184,7 @@ export type FinalQuizAttempt = {
   user_answers: Array<{
     question_id: string
     selected_answer_ids: string[]
+    submitted_payload: Record<string, unknown>
     is_correct: boolean | null
   }>
 }

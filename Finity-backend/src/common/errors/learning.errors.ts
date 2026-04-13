@@ -31,4 +31,15 @@ export const LearningErrors = {
     `Вопрос ${questionId} не относится к выбранному тесту`,
   answerNotInQuestion: (answerId: string, questionId: string) =>
     `Вариант ответа ${answerId} не относится к вопросу ${questionId}`,
+
+  questionConfigRequired: (questionType: string) =>
+    `Для вопроса типа "${questionType}" требуется корректное поле "config"`,
+  openQuestionNeedsAcceptedAnswers:
+    'Для вопроса типа "open" нужно задать минимум один эталонный вариант ответа',
+  sequenceQuestionInvalidConfig:
+    'Для вопроса типа "sequence" требуется список элементов и корректный порядок',
+  matchingQuestionInvalidConfig:
+    'Для вопроса типа "matching" требуется корректный набор левых/правых элементов и пар',
+  unsupportedAnswerOperationsForQuestionType: (questionType: string) =>
+    `Операции с вариантами ответов доступны только для вопросов single/multiple. Текущий тип: ${questionType}`,
 };
