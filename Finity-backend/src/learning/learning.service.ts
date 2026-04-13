@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { LearningErrors } from '../common/errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitQuizAttemptDto } from './dto/submit-quiz-attempt.dto';
@@ -24,7 +25,21 @@ import { CreateAnswerDto, UpdateAnswerDto } from './dto/admin/answer.dto';
 type EvaluatedQuestion = {
   questionId: bigint;
   selectedAnswerIds: string[];
+  submittedPayload: Record<string, unknown>;
   isCorrect: boolean;
+};
+
+type QuestionConfigObject = Record<string, unknown>;
+
+type SequenceConfig = {
+  items: Array<{ id: string; text: string }>;
+  correctOrder: string[];
+};
+
+type MatchingConfig = {
+  leftItems: Array<{ id: string; text: string }>;
+  rightItems: Array<{ id: string; text: string }>;
+  correctPairs: Array<{ leftId: string; rightId: string }>;
 };
 
 type LessonProgressSnapshot = {
@@ -1003,6 +1018,7 @@ export class LearningService {
             id: true,
             text: true,
             q_type: true,
+            config_json: true,
             order_index: true,
             answers: {
               orderBy: { id: 'asc' },
@@ -1030,7 +1046,207 @@ export class LearningService {
     return value as QuestionType;
   }
 
-  private validateQuestionAnswerSet(
+  private toQuestionConfigObject(value: unknown): QuestionConfigObject {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+    return value as QuestionConfigObject;
+  }
+
+  private toStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter((item) => item.length > 0);
+  }
+
+  private toPrismaJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
+  }
+
+  private parseSequenceConfig(configRaw: unknown): SequenceConfig | null {
+    const config = this.toQuestionConfigObject(configRaw);
+    const rawItems = config.items;
+    const rawCorrectOrder = config.correctOrder;
+
+    if (!Array.isArray(rawItems)) return null;
+
+    const items = rawItems
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return null;
+        }
+        const id =
+          typeof (item as { id?: unknown }).id === 'string'
+            ? (item as { id: string }).id.trim()
+            : '';
+        const text =
+          typeof (item as { text?: unknown }).text === 'string'
+            ? (item as { text: string }).text.trim()
+            : '';
+        if (!id || !text) return null;
+        return { id, text };
+      })
+      .filter((item): item is { id: string; text: string } => item !== null);
+
+    const correctOrder = this.toStringArray(rawCorrectOrder);
+    if (items.length < 2 || correctOrder.length !== items.length) {
+      return null;
+    }
+
+    const itemIds = items.map((item) => item.id);
+    if (new Set(itemIds).size !== itemIds.length) return null;
+    if (new Set(correctOrder).size !== correctOrder.length) return null;
+    if (!itemIds.every((id) => correctOrder.includes(id))) return null;
+    if (!correctOrder.every((id) => itemIds.includes(id))) return null;
+
+    return { items, correctOrder };
+  }
+
+  private parseMatchingConfig(configRaw: unknown): MatchingConfig | null {
+    const config = this.toQuestionConfigObject(configRaw);
+    const rawLeftItems = config.leftItems;
+    const rawRightItems = config.rightItems;
+    const rawCorrectPairs = config.correctPairs;
+
+    const parseItems = (
+      raw: unknown,
+    ): Array<{ id: string; text: string }> | null => {
+      if (!Array.isArray(raw)) return null;
+      const items = raw
+        .map((item) => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            return null;
+          }
+          const id =
+            typeof (item as { id?: unknown }).id === 'string'
+              ? (item as { id: string }).id.trim()
+              : '';
+          const text =
+            typeof (item as { text?: unknown }).text === 'string'
+              ? (item as { text: string }).text.trim()
+              : '';
+          if (!id || !text) return null;
+          return { id, text };
+        })
+        .filter((item): item is { id: string; text: string } => item !== null);
+      return items;
+    };
+
+    const leftItems = parseItems(rawLeftItems);
+    const rightItems = parseItems(rawRightItems);
+    if (!leftItems || !rightItems) return null;
+    if (leftItems.length < 2 || rightItems.length < 2) return null;
+
+    if (new Set(leftItems.map((item) => item.id)).size !== leftItems.length) {
+      return null;
+    }
+    if (
+      new Set(rightItems.map((item) => item.id)).size !== rightItems.length
+    ) {
+      return null;
+    }
+
+    if (!Array.isArray(rawCorrectPairs)) return null;
+    const correctPairs = rawCorrectPairs
+      .map((pair) => {
+        if (!pair || typeof pair !== 'object' || Array.isArray(pair)) {
+          return null;
+        }
+        const leftId =
+          typeof (pair as { leftId?: unknown }).leftId === 'string'
+            ? (pair as { leftId: string }).leftId.trim()
+            : '';
+        const rightId =
+          typeof (pair as { rightId?: unknown }).rightId === 'string'
+            ? (pair as { rightId: string }).rightId.trim()
+            : '';
+        if (!leftId || !rightId) return null;
+        return { leftId, rightId };
+      })
+      .filter((pair): pair is { leftId: string; rightId: string } => pair !== null);
+
+    if (correctPairs.length !== leftItems.length) return null;
+    if (
+      new Set(correctPairs.map((pair) => pair.leftId)).size !==
+      correctPairs.length
+    ) {
+      return null;
+    }
+    if (
+      new Set(correctPairs.map((pair) => pair.rightId)).size !==
+      correctPairs.length
+    ) {
+      return null;
+    }
+
+    const leftIds = new Set(leftItems.map((item) => item.id));
+    const rightIds = new Set(rightItems.map((item) => item.id));
+    if (!correctPairs.every((pair) => leftIds.has(pair.leftId))) return null;
+    if (!correctPairs.every((pair) => rightIds.has(pair.rightId))) return null;
+
+    return {
+      leftItems,
+      rightItems,
+      correctPairs,
+    };
+  }
+
+  private normalizeOpenAnswer(
+    value: string,
+    options: {
+      caseSensitive: boolean;
+      trim: boolean;
+      collapseSpaces: boolean;
+    },
+  ): string {
+    let next = value;
+    if (options.trim) next = next.trim();
+    if (options.collapseSpaces) next = next.replace(/\s+/g, ' ');
+    if (!options.caseSensitive) next = next.toLowerCase();
+    return next;
+  }
+
+  private validateQuestionPayload(
+    qType: QuestionType,
+    answers: Array<{ isCorrect: boolean }>,
+    configRaw: unknown,
+  ) {
+    if (qType === 'single' || qType === 'multiple') {
+      this.validateChoiceAnswers(qType, answers);
+      return;
+    }
+
+    if (qType === 'open') {
+      const config = this.toQuestionConfigObject(configRaw);
+      const accepted = this.toStringArray(config.acceptedAnswers);
+      const hasFallbackAccepted = answers.some((answer) => answer.isCorrect);
+      if (accepted.length === 0 && !hasFallbackAccepted) {
+        throw new BadRequestException(
+          LearningErrors.openQuestionNeedsAcceptedAnswers,
+        );
+      }
+      return;
+    }
+
+    if (qType === 'sequence') {
+      const parsed = this.parseSequenceConfig(configRaw);
+      if (!parsed) {
+        throw new BadRequestException(LearningErrors.sequenceQuestionInvalidConfig);
+      }
+      return;
+    }
+
+    if (qType === 'matching') {
+      const parsed = this.parseMatchingConfig(configRaw);
+      if (!parsed) {
+        throw new BadRequestException(LearningErrors.matchingQuestionInvalidConfig);
+      }
+      return;
+    }
+  }
+
+  private validateChoiceAnswers(
     qType: QuestionType,
     answers: Array<{ isCorrect: boolean }>,
   ) {
@@ -1215,7 +1431,11 @@ export class LearningService {
 
     for (const question of dto.questions) {
       const qType = this.normalizeQuestionType(question.qType);
-      this.validateQuestionAnswerSet(qType, question.answers);
+      this.validateQuestionPayload(
+        qType,
+        question.answers ?? [],
+        question.config,
+      );
     }
 
     const createdQuiz = await this.prisma.$transaction(async (tx) => {
@@ -1237,11 +1457,12 @@ export class LearningService {
             quiz_id: quiz.id,
             text: question.text,
             q_type: qType,
+            config_json: this.toPrismaJson(question.config ?? {}),
             order_index: orderIndex,
           },
         });
 
-        for (const answer of question.answers) {
+        for (const answer of question.answers ?? []) {
           await tx.answers.create({
             data: {
               question_id: createdQuestion.id,
@@ -1265,6 +1486,7 @@ export class LearningService {
               id: true,
               text: true,
               q_type: true,
+              config_json: true,
               order_index: true,
               answers: {
                 orderBy: { id: 'asc' },
@@ -1300,6 +1522,7 @@ export class LearningService {
             id: true,
             text: true,
             q_type: true,
+            config_json: true,
             order_index: true,
             answers: {
               orderBy: { id: 'asc' },
@@ -1351,7 +1574,7 @@ export class LearningService {
   async createFinalQuizQuestion(quizIdRaw: string, dto: CreateQuestionDto) {
     const quizId = this.parseBigInt(quizIdRaw, 'quizId');
     const qType = this.normalizeQuestionType(dto.qType);
-    this.validateQuestionAnswerSet(qType, dto.answers);
+    this.validateQuestionPayload(qType, dto.answers ?? [], dto.config);
 
     const quiz = await this.prisma.quizzes.findUnique({
       where: { id: quizId },
@@ -1375,11 +1598,12 @@ export class LearningService {
           quiz_id: quizId,
           text: dto.text,
           q_type: qType,
+          config_json: this.toPrismaJson(dto.config ?? {}),
           order_index: orderIndex,
         },
       });
 
-      for (const answer of dto.answers) {
+      for (const answer of dto.answers ?? []) {
         await tx.answers.create({
           data: {
             question_id: question.id,
@@ -1396,6 +1620,7 @@ export class LearningService {
           quiz_id: true,
           text: true,
           q_type: true,
+          config_json: true,
           order_index: true,
           answers: {
             orderBy: { id: 'asc' },
@@ -1422,6 +1647,7 @@ export class LearningService {
       select: {
         id: true,
         q_type: true,
+        config_json: true,
         answers: {
           select: {
             is_correct: true,
@@ -1442,11 +1668,20 @@ export class LearningService {
       }
     }
 
+    this.validateQuestionPayload(
+      nextType,
+      question.answers.map((answer) => ({ isCorrect: answer.is_correct })),
+      dto.config ?? question.config_json,
+    );
+
     return this.prisma.questions.update({
       where: { id: questionId },
       data: {
         ...(dto.text !== undefined ? { text: dto.text } : {}),
         ...(dto.qType !== undefined ? { q_type: dto.qType } : {}),
+        ...(dto.config !== undefined
+          ? { config_json: this.toPrismaJson(dto.config) }
+          : {}),
         ...(dto.orderIndex !== undefined
           ? { order_index: dto.orderIndex }
           : {}),
@@ -1481,6 +1716,13 @@ export class LearningService {
       },
     });
     if (!question) throw new NotFoundException(LearningErrors.questionNotFound);
+    if (!['single', 'multiple'].includes(question.q_type)) {
+      throw new BadRequestException(
+        LearningErrors.unsupportedAnswerOperationsForQuestionType(
+          question.q_type,
+        ),
+      );
+    }
 
     const isCorrect = dto.isCorrect ?? false;
 
@@ -1526,6 +1768,13 @@ export class LearningService {
       },
     });
     if (!answer) throw new NotFoundException(LearningErrors.answerNotFound);
+    if (!['single', 'multiple'].includes(answer.questions.q_type)) {
+      throw new BadRequestException(
+        LearningErrors.unsupportedAnswerOperationsForQuestionType(
+          answer.questions.q_type,
+        ),
+      );
+    }
 
     const nextIsCorrect = dto.isCorrect ?? answer.is_correct;
     const otherAnswers = answer.questions.answers.filter(
@@ -1569,6 +1818,7 @@ export class LearningService {
         is_correct: true,
         questions: {
           select: {
+            q_type: true,
             answers: {
               select: {
                 id: true,
@@ -1580,6 +1830,13 @@ export class LearningService {
       },
     });
     if (!answer) throw new NotFoundException(LearningErrors.answerNotFound);
+    if (!['single', 'multiple'].includes(answer.questions.q_type)) {
+      throw new BadRequestException(
+        LearningErrors.unsupportedAnswerOperationsForQuestionType(
+          answer.questions.q_type,
+        ),
+      );
+    }
 
     const allAnswers = answer.questions.answers;
     const remaining = allAnswers.filter((item) => item.id !== answer.id);
@@ -1602,10 +1859,20 @@ export class LearningService {
     submitted: SubmitQuizAttemptDto;
     questions: Array<{
       id: bigint;
-      answers: Array<{ id: bigint; is_correct: boolean }>;
+      q_type: string;
+      config_json: unknown;
+      answers: Array<{ id: bigint; text: string; is_correct: boolean }>;
     }>;
   }) {
-    const submittedMap = new Map<bigint, string[]>();
+    const submittedMap = new Map<
+      bigint,
+      {
+        selectedAnswerIds: string[];
+        textAnswer: string;
+        orderedItemIds: string[];
+        matchingPairs: Array<{ leftId: string; rightId: string }>;
+      }
+    >();
 
     for (const answer of params.submitted.answers) {
       const questionId = this.parseBigInt(answer.questionId, 'questionId');
@@ -1614,7 +1881,15 @@ export class LearningService {
           LearningErrors.duplicateAnswersForQuestion(answer.questionId),
         );
       }
-      submittedMap.set(questionId, [...new Set(answer.selectedAnswerIds)]);
+      submittedMap.set(questionId, {
+        selectedAnswerIds: [...new Set(answer.selectedAnswerIds ?? [])],
+        textAnswer: answer.textAnswer ?? '',
+        orderedItemIds: answer.orderedItemIds ?? [],
+        matchingPairs: (answer.matchingPairs ?? []).map((pair) => ({
+          leftId: pair.leftId,
+          rightId: pair.rightId,
+        })),
+      });
     }
 
     const quizQuestionIds = new Set(
@@ -1631,33 +1906,164 @@ export class LearningService {
     const evaluated: EvaluatedQuestion[] = [];
 
     for (const question of params.questions) {
-      const selectedAnswerIds = submittedMap.get(question.id) ?? [];
-      const answerIdsInQuestion = new Set(
-        question.answers.map((answer) => answer.id.toString()),
-      );
+      const qType = this.normalizeQuestionType(question.q_type);
+      const submittedAnswer = submittedMap.get(question.id);
 
-      for (const selectedId of selectedAnswerIds) {
-        if (!answerIdsInQuestion.has(selectedId)) {
-          throw new BadRequestException(
-            LearningErrors.answerNotInQuestion(
-              selectedId,
-              question.id.toString(),
-            ),
-          );
+      if (qType === 'single' || qType === 'multiple') {
+        const selectedAnswerIds = submittedAnswer?.selectedAnswerIds ?? [];
+        const answerIdsInQuestion = new Set(
+          question.answers.map((answer) => answer.id.toString()),
+        );
+
+        for (const selectedId of selectedAnswerIds) {
+          if (!answerIdsInQuestion.has(selectedId)) {
+            throw new BadRequestException(
+              LearningErrors.answerNotInQuestion(
+                selectedId,
+                question.id.toString(),
+              ),
+            );
+          }
         }
+
+        const selectedKey = [...selectedAnswerIds].sort().join(',');
+        const correctIds = question.answers
+          .filter((answer) => answer.is_correct)
+          .map((answer) => answer.id.toString())
+          .sort();
+        const correctKey = correctIds.join(',');
+        const isCorrect =
+          correctIds.length > 0 &&
+          selectedKey === correctKey &&
+          (qType !== 'single' || selectedAnswerIds.length <= 1);
+
+        evaluated.push({
+          questionId: question.id,
+          selectedAnswerIds,
+          submittedPayload: { selectedAnswerIds },
+          isCorrect,
+        });
+        continue;
       }
 
-      const selectedKey = [...selectedAnswerIds].sort().join(',');
-      const correctIds = question.answers
-        .filter((answer) => answer.is_correct)
-        .map((answer) => answer.id.toString())
-        .sort();
-      const correctKey = correctIds.join(',');
-      const isCorrect = correctIds.length > 0 && selectedKey === correctKey;
+      if (qType === 'open') {
+        const config = this.toQuestionConfigObject(question.config_json);
+        const trim =
+          typeof config.trim === 'boolean' ? config.trim : true;
+        const collapseSpaces =
+          typeof config.collapseSpaces === 'boolean'
+            ? config.collapseSpaces
+            : true;
+        const caseSensitive =
+          typeof config.caseSensitive === 'boolean'
+            ? config.caseSensitive
+            : false;
+        const acceptedFromConfig = this.toStringArray(config.acceptedAnswers);
+        const acceptedFromAnswers = question.answers
+          .filter((answer) => answer.is_correct)
+          .map((answer) => answer.text);
+        const acceptedAnswers =
+          acceptedFromConfig.length > 0
+            ? acceptedFromConfig
+            : acceptedFromAnswers;
+
+        const rawText = submittedAnswer?.textAnswer ?? '';
+        const normalizedText = this.normalizeOpenAnswer(rawText, {
+          trim,
+          collapseSpaces,
+          caseSensitive,
+        });
+        const normalizedAccepted = acceptedAnswers
+          .map((value) =>
+            this.normalizeOpenAnswer(value, {
+              trim,
+              collapseSpaces,
+              caseSensitive,
+            }),
+          )
+          .filter((value) => value.length > 0);
+
+        const isCorrect =
+          normalizedText.length > 0 &&
+          normalizedAccepted.includes(normalizedText);
+
+        evaluated.push({
+          questionId: question.id,
+          selectedAnswerIds: [],
+          submittedPayload: { textAnswer: rawText },
+          isCorrect,
+        });
+        continue;
+      }
+
+      if (qType === 'sequence') {
+        const parsedConfig = this.parseSequenceConfig(question.config_json);
+        if (!parsedConfig) {
+          throw new BadRequestException(
+            LearningErrors.sequenceQuestionInvalidConfig,
+          );
+        }
+
+        const orderedItemIds = submittedAnswer?.orderedItemIds ?? [];
+        const itemIds = parsedConfig.items.map((item) => item.id);
+        const hasValidShape =
+          orderedItemIds.length === itemIds.length &&
+          new Set(orderedItemIds).size === orderedItemIds.length &&
+          orderedItemIds.every((id) => itemIds.includes(id));
+        const isCorrect =
+          hasValidShape &&
+          orderedItemIds.every(
+            (id, index) => id === parsedConfig.correctOrder[index],
+          );
+
+        evaluated.push({
+          questionId: question.id,
+          selectedAnswerIds: [],
+          submittedPayload: { orderedItemIds },
+          isCorrect,
+        });
+        continue;
+      }
+
+      const parsedConfig = this.parseMatchingConfig(question.config_json);
+      if (!parsedConfig) {
+        throw new BadRequestException(
+          LearningErrors.matchingQuestionInvalidConfig,
+        );
+      }
+
+      const submittedPairs = submittedAnswer?.matchingPairs ?? [];
+      const normalizedPairs = submittedPairs
+        .map((pair) => ({
+          leftId: pair.leftId.trim(),
+          rightId: pair.rightId.trim(),
+        }))
+        .filter((pair) => pair.leftId.length > 0 && pair.rightId.length > 0);
+
+      const leftIds = new Set(parsedConfig.leftItems.map((item) => item.id));
+      const rightIds = new Set(parsedConfig.rightItems.map((item) => item.id));
+      const hasValidShape =
+        normalizedPairs.length === parsedConfig.leftItems.length &&
+        new Set(normalizedPairs.map((pair) => pair.leftId)).size ===
+          normalizedPairs.length &&
+        new Set(normalizedPairs.map((pair) => pair.rightId)).size ===
+          normalizedPairs.length &&
+        normalizedPairs.every((pair) => leftIds.has(pair.leftId)) &&
+        normalizedPairs.every((pair) => rightIds.has(pair.rightId));
+
+      const expectedMap = new Map(
+        parsedConfig.correctPairs.map((pair) => [pair.leftId, pair.rightId]),
+      );
+      const isCorrect =
+        hasValidShape &&
+        normalizedPairs.every(
+          (pair) => expectedMap.get(pair.leftId) === pair.rightId,
+        );
 
       evaluated.push({
         questionId: question.id,
-        selectedAnswerIds,
+        selectedAnswerIds: [],
+        submittedPayload: { matchingPairs: normalizedPairs },
         isCorrect,
       });
     }
@@ -1684,9 +2090,12 @@ export class LearningService {
           orderBy: [{ order_index: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
+            q_type: true,
+            config_json: true,
             answers: {
               select: {
                 id: true,
+                text: true,
                 is_correct: true,
               },
             },
@@ -1720,6 +2129,7 @@ export class LearningService {
             attempt_id: createdAttempt.id,
             question_id: question.questionId,
             selected_answer_ids: question.selectedAnswerIds,
+            submitted_payload: this.toPrismaJson(question.submittedPayload),
             is_correct: question.isCorrect,
           },
         });
@@ -1760,6 +2170,7 @@ export class LearningService {
           select: {
             question_id: true,
             selected_answer_ids: true,
+            submitted_payload: true,
             is_correct: true,
           },
         },

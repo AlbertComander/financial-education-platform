@@ -4,6 +4,17 @@ import { useRoute, useRouter } from 'vue-router'
 import { ChevronLeft, ChevronRight, Clock3, FileText, ListChecks } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useLearningStore } from '@/stores/learning'
 import { isFinalExamLesson, isFinalExamUnlocked } from '@/lib/learning-lessons'
 import type {
@@ -35,6 +46,15 @@ const finalQuizSubmitting = ref(false)
 const finalQuizError = ref('')
 const finalQuiz = ref<FinalQuiz | null>(null)
 const finalQuizSelectedAnswers = ref<Record<string, string[]>>({})
+const finalQuizOpenAnswers = ref<Record<string, string>>({})
+const finalQuizSequenceOrders = ref<Record<string, string[]>>({})
+const finalQuizMatchingSelections = ref<Record<string, Record<string, string>>>({})
+const finalQuizSequenceDragState = ref<{
+  questionId: string
+  fromIndex: number
+} | null>(null)
+const finalQuizShowIncompleteConfirm = ref(false)
+const finalQuizHighlightIncomplete = ref(false)
 
 const quickCheckLoading = ref(false)
 const quickCheckSubmitting = ref(false)
@@ -59,6 +79,34 @@ const quickCheckStates = ref<
     }
   >
 >({})
+
+type SequenceItem = {
+  id: string
+  text: string
+}
+
+type MatchingItem = {
+  id: string
+  text: string
+}
+
+type MatchingPair = {
+  leftId: string
+  rightId: string
+}
+
+type SequenceConfig = {
+  items: SequenceItem[]
+  correctOrder: string[]
+}
+
+type MatchingConfig = {
+  leftItems: MatchingItem[]
+  rightItems: MatchingItem[]
+  correctPairs: MatchingPair[]
+}
+
+type FinalQuizQuestion = FinalQuiz['questions'][number]
 
 type ArticleSection = {
   id: string
@@ -90,6 +138,113 @@ function normalizePoints(value: unknown): string[] {
   return value
     .map((item) => (typeof item === 'string' ? item.trim() : ''))
     .filter((item) => item.length > 0)
+}
+
+function toConfigObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+  return value as Record<string, unknown>
+}
+
+function toConfigString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function toConfigStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => toConfigString(item))
+    .filter((item) => item.length > 0)
+}
+
+function parseFinalSequenceConfig(question: FinalQuizQuestion): SequenceConfig | null {
+  if (question.q_type !== 'sequence') return null
+
+  const config = toConfigObject(question.config_json)
+  const rawItems = config.items
+  const rawCorrectOrder = config.correctOrder
+  if (!Array.isArray(rawItems)) return null
+
+  const items = rawItems
+    .map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+      const source = item as Record<string, unknown>
+      const id = toConfigString(source.id)
+      const text = toConfigString(source.text)
+      if (!id || !text) return null
+      return { id, text }
+    })
+    .filter((item): item is SequenceItem => item !== null)
+
+  const correctOrder = toConfigStringArray(rawCorrectOrder)
+  if (items.length < 2 || correctOrder.length !== items.length) return null
+
+  const itemIds = items.map((item) => item.id)
+  if (new Set(itemIds).size !== itemIds.length) return null
+  if (new Set(correctOrder).size !== correctOrder.length) return null
+  if (!itemIds.every((id) => correctOrder.includes(id))) return null
+  if (!correctOrder.every((id) => itemIds.includes(id))) return null
+
+  return {
+    items,
+    correctOrder,
+  }
+}
+
+function parseFinalMatchingConfig(question: FinalQuizQuestion): MatchingConfig | null {
+  if (question.q_type !== 'matching') return null
+
+  const config = toConfigObject(question.config_json)
+  const rawLeft = config.leftItems
+  const rawRight = config.rightItems
+  const rawPairs = config.correctPairs
+  if (!Array.isArray(rawLeft) || !Array.isArray(rawRight) || !Array.isArray(rawPairs)) {
+    return null
+  }
+
+  const parseItems = (list: unknown[]): MatchingItem[] =>
+    list
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+        const source = item as Record<string, unknown>
+        const id = toConfigString(source.id)
+        const text = toConfigString(source.text)
+        if (!id || !text) return null
+        return { id, text }
+      })
+      .filter((item): item is MatchingItem => item !== null)
+
+  const leftItems = parseItems(rawLeft)
+  const rightItems = parseItems(rawRight)
+  const correctPairs = rawPairs
+    .map((pair) => {
+      if (!pair || typeof pair !== 'object' || Array.isArray(pair)) return null
+      const source = pair as Record<string, unknown>
+      const leftId = toConfigString(source.leftId)
+      const rightId = toConfigString(source.rightId)
+      if (!leftId || !rightId) return null
+      return { leftId, rightId }
+    })
+    .filter((pair): pair is MatchingPair => pair !== null)
+
+  if (leftItems.length < 2 || rightItems.length < 2) return null
+  if (new Set(leftItems.map((item) => item.id)).size !== leftItems.length) return null
+  if (new Set(rightItems.map((item) => item.id)).size !== rightItems.length) return null
+  if (correctPairs.length !== leftItems.length) return null
+  if (new Set(correctPairs.map((pair) => pair.leftId)).size !== correctPairs.length) return null
+  if (new Set(correctPairs.map((pair) => pair.rightId)).size !== correctPairs.length) return null
+
+  const leftIds = new Set(leftItems.map((item) => item.id))
+  const rightIds = new Set(rightItems.map((item) => item.id))
+  if (!correctPairs.every((pair) => leftIds.has(pair.leftId))) return null
+  if (!correctPairs.every((pair) => rightIds.has(pair.rightId))) return null
+
+  return {
+    leftItems,
+    rightItems,
+    correctPairs,
+  }
 }
 
 function blockToSection(block: LessonBlock, index: number): ArticleSection {
@@ -398,11 +553,69 @@ const isQuickCompleted = computed(() => {
   return quickCorrectCount.value >= quickCheckQuestions.value.length
 })
 
-const canSubmitFinalQuiz = computed(() => {
-  if (!finalQuiz.value) return false
-  return finalQuiz.value.questions.every(
-    (question) => (finalQuizSelectedAnswers.value[question.id]?.length ?? 0) > 0,
-  )
+const finalQuizIncompleteQuestions = computed(() => {
+  if (!finalQuiz.value) return []
+  return finalQuiz.value.questions
+    .map((question, index) => ({ question, index }))
+    .filter(({ question }) => {
+      if (question.q_type === 'single' || question.q_type === 'multiple') {
+        return (finalQuizSelectedAnswers.value[question.id]?.length ?? 0) === 0
+      }
+
+      if (question.q_type === 'open') {
+        return (finalQuizOpenAnswers.value[question.id] ?? '').trim().length === 0
+      }
+
+      if (question.q_type === 'sequence') {
+        const config = parseFinalSequenceConfig(question)
+        if (!config) return true
+        const order = finalQuizSequenceOrders.value[question.id] ?? []
+        return (
+          order.length !== config.items.length ||
+          new Set(order).size !== order.length ||
+          !order.every((id) => config.items.some((item) => item.id === id))
+        )
+      }
+
+      const config = parseFinalMatchingConfig(question)
+      if (!config) return true
+      const selectedMap = finalQuizMatchingSelections.value[question.id] ?? {}
+      const selectedRight = config.leftItems.map((item) => selectedMap[item.id] ?? '')
+      return !selectedRight.every((value) => value.length > 0)
+    })
+    .map(({ index }) => index + 1)
+})
+
+const finalQuizIncompleteQuestionIds = computed(() => {
+  if (!finalQuiz.value) return []
+  return finalQuiz.value.questions
+    .filter((question) => {
+      if (question.q_type === 'single' || question.q_type === 'multiple') {
+        return (finalQuizSelectedAnswers.value[question.id]?.length ?? 0) === 0
+      }
+
+      if (question.q_type === 'open') {
+        return (finalQuizOpenAnswers.value[question.id] ?? '').trim().length === 0
+      }
+
+      if (question.q_type === 'sequence') {
+        const config = parseFinalSequenceConfig(question)
+        if (!config) return true
+        const order = finalQuizSequenceOrders.value[question.id] ?? []
+        return (
+          order.length !== config.items.length ||
+          new Set(order).size !== order.length ||
+          !order.every((id) => config.items.some((item) => item.id === id))
+        )
+      }
+
+      const config = parseFinalMatchingConfig(question)
+      if (!config) return true
+      const selectedMap = finalQuizMatchingSelections.value[question.id] ?? {}
+      const selectedRight = config.leftItems.map((item) => selectedMap[item.id] ?? '')
+      return !selectedRight.every((value) => value.length > 0)
+    })
+    .map((question) => question.id)
 })
 
 function resetQuickCheckState() {
@@ -420,6 +633,12 @@ function resetFinalQuizState() {
   finalQuizError.value = ''
   finalQuiz.value = null
   finalQuizSelectedAnswers.value = {}
+  finalQuizOpenAnswers.value = {}
+  finalQuizSequenceOrders.value = {}
+  finalQuizMatchingSelections.value = {}
+  finalQuizSequenceDragState.value = null
+  finalQuizShowIncompleteConfirm.value = false
+  finalQuizHighlightIncomplete.value = false
 }
 
 function quickAnswerState(questionId: string) {
@@ -475,13 +694,181 @@ function selectFinalSingle(questionId: string, answerId: string) {
   finalQuizSelectedAnswers.value[questionId] = [answerId]
 }
 
-function toggleFinalMulti(questionId: string, answerId: string) {
-  const selected = finalQuizSelectedAnswers.value[questionId] ?? []
-  if (selected.includes(answerId)) {
-    finalQuizSelectedAnswers.value[questionId] = selected.filter((item) => item !== answerId)
+function setFinalMultipleChecked(
+  questionId: string,
+  answerId: string,
+  checked: boolean | 'indeterminate',
+) {
+  if (checked === true) {
+    const selected = finalQuizSelectedAnswers.value[questionId] ?? []
+    if (!selected.includes(answerId)) {
+      finalQuizSelectedAnswers.value[questionId] = [...selected, answerId]
+    }
     return
   }
-  finalQuizSelectedAnswers.value[questionId] = [...selected, answerId]
+  finalQuizSelectedAnswers.value[questionId] = (
+    finalQuizSelectedAnswers.value[questionId] ?? []
+  ).filter((item) => item !== answerId)
+}
+
+function setFinalOpenAnswer(questionId: string, value: string) {
+  finalQuizOpenAnswers.value[questionId] = value
+}
+
+function getFinalSequenceItems(question: FinalQuizQuestion): SequenceItem[] {
+  const config = parseFinalSequenceConfig(question)
+  if (!config) return []
+
+  const order = finalQuizSequenceOrders.value[question.id] ?? []
+  const itemMap = new Map(config.items.map((item) => [item.id, item]))
+  if (order.length !== config.items.length) {
+    return [...config.items]
+  }
+
+  const ordered = order
+    .map((id) => itemMap.get(id))
+    .filter((item): item is SequenceItem => item !== undefined)
+  if (ordered.length !== config.items.length) {
+    return [...config.items]
+  }
+
+  return ordered
+}
+
+function isFinalSequenceItemDragging(questionId: string, index: number): boolean {
+  return (
+    finalQuizSequenceDragState.value?.questionId === questionId &&
+    finalQuizSequenceDragState.value?.fromIndex === index
+  )
+}
+
+function startFinalSequenceDrag(
+  question: FinalQuizQuestion,
+  index: number,
+  event: DragEvent,
+) {
+  finalQuizSequenceDragState.value = {
+    questionId: question.id,
+    fromIndex: index,
+  }
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', `${question.id}:${index}`)
+  }
+}
+
+function endFinalSequenceDrag() {
+  finalQuizSequenceDragState.value = null
+}
+
+function allowFinalSequenceDrop(event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+function reorderFinalSequenceWhileDragging(
+  question: FinalQuizQuestion,
+  toIndex: number,
+  event: DragEvent,
+) {
+  const config = parseFinalSequenceConfig(question)
+  if (!config) return
+
+  const dragState = finalQuizSequenceDragState.value
+  if (!dragState || dragState.questionId !== question.id) return
+
+  const order = [...(finalQuizSequenceOrders.value[question.id] ?? config.items.map((item) => item.id))]
+  if (dragState.fromIndex < 0 || dragState.fromIndex >= order.length) return
+  if (toIndex < 0 || toIndex >= order.length) return
+  if (dragState.fromIndex === toIndex) return
+
+  const target = event.currentTarget as HTMLElement | null
+  if (target) {
+    const rect = target.getBoundingClientRect()
+    const middleY = rect.top + rect.height / 2
+    const isMovingDown = dragState.fromIndex < toIndex
+    const isMovingUp = dragState.fromIndex > toIndex
+
+    if (isMovingDown && event.clientY < middleY) return
+    if (isMovingUp && event.clientY > middleY) return
+  }
+
+  const [movedId] = order.splice(dragState.fromIndex, 1)
+  if (!movedId) return
+
+  order.splice(toIndex, 0, movedId)
+  finalQuizSequenceOrders.value[question.id] = order
+  finalQuizSequenceDragState.value = {
+    questionId: question.id,
+    fromIndex: toIndex,
+  }
+}
+
+function dragOverFinalSequenceItem(
+  question: FinalQuizQuestion,
+  toIndex: number,
+  event: DragEvent,
+) {
+  allowFinalSequenceDrop(event)
+  reorderFinalSequenceWhileDragging(question, toIndex, event)
+}
+
+function dropFinalSequenceItem(event: DragEvent) {
+  event.preventDefault()
+  finalQuizSequenceDragState.value = null
+}
+
+function getFinalMatchingConfig(question: FinalQuizQuestion): MatchingConfig | null {
+  return parseFinalMatchingConfig(question)
+}
+
+function getFinalMatchingValue(questionId: string, leftId: string): string {
+  return finalQuizMatchingSelections.value[questionId]?.[leftId] ?? ''
+}
+
+function setFinalMatchingPair(questionId: string, leftId: string, rightId: string) {
+  const map = finalQuizMatchingSelections.value[questionId] ?? {}
+  finalQuizMatchingSelections.value[questionId] = {
+    ...map,
+    [leftId]: rightId,
+  }
+}
+
+function finalQuestionMetaLabel(question: FinalQuizQuestion): string {
+  if (question.q_type === 'single') return 'Выберите один вариант'
+  if (question.q_type === 'multiple') return 'Выберите несколько вариантов'
+  if (question.q_type === 'open') return 'Введите ответ в свободной форме'
+  if (question.q_type === 'sequence') return 'Расположите элементы в правильном порядке'
+  return 'Установите соответствия'
+}
+
+function isFinalQuestionIncomplete(questionId: string): boolean {
+  return (
+    finalQuizHighlightIncomplete.value &&
+    finalQuizIncompleteQuestionIds.value.includes(questionId)
+  )
+}
+
+function requestFinalQuizSubmit() {
+  finalQuizHighlightIncomplete.value = finalQuizIncompleteQuestions.value.length > 0
+
+  if (finalQuizIncompleteQuestions.value.length > 0) {
+    finalQuizShowIncompleteConfirm.value = true
+    return
+  }
+
+  void submitFinalQuiz()
+}
+
+function closeFinalQuizConfirm() {
+  finalQuizShowIncompleteConfirm.value = false
+}
+
+function confirmFinalQuizSubmit() {
+  finalQuizShowIncompleteConfirm.value = false
+  void submitFinalQuiz()
 }
 
 async function loadQuickCheck(lessonIdValue: string) {
@@ -524,11 +911,40 @@ async function loadFinalQuiz(quizId: string) {
   try {
     const quiz = await learning.getFinalQuizById(quizId)
     finalQuiz.value = quiz
-    const state: Record<string, string[]> = {}
+    const selectedState: Record<string, string[]> = {}
+    const openState: Record<string, string> = {}
+    const sequenceState: Record<string, string[]> = {}
+    const matchingState: Record<string, Record<string, string>> = {}
+
     for (const question of quiz.questions) {
-      state[question.id] = []
+      if (question.q_type === 'single' || question.q_type === 'multiple') {
+        selectedState[question.id] = []
+        continue
+      }
+
+      if (question.q_type === 'open') {
+        openState[question.id] = ''
+        continue
+      }
+
+      if (question.q_type === 'sequence') {
+        const config = parseFinalSequenceConfig(question)
+        sequenceState[question.id] = config ? config.items.map((item) => item.id) : []
+        continue
+      }
+
+      const config = parseFinalMatchingConfig(question)
+      const selectedPairs: Record<string, string> = {}
+      for (const leftItem of config?.leftItems ?? []) {
+        selectedPairs[leftItem.id] = ''
+      }
+      matchingState[question.id] = selectedPairs
     }
-    finalQuizSelectedAnswers.value = state
+
+    finalQuizSelectedAnswers.value = selectedState
+    finalQuizOpenAnswers.value = openState
+    finalQuizSequenceOrders.value = sequenceState
+    finalQuizMatchingSelections.value = matchingState
   } catch (error) {
     resetFinalQuizState()
     finalQuizError.value =
@@ -539,11 +955,39 @@ async function loadFinalQuiz(quizId: string) {
 }
 
 async function submitFinalQuiz() {
-  if (!finalQuiz.value || !canSubmitFinalQuiz.value) return
-  const payload: FinalQuizAttemptSubmitAnswer[] = finalQuiz.value.questions.map((question) => ({
-    questionId: question.id,
-    selectedAnswerIds: finalQuizSelectedAnswers.value[question.id] ?? [],
-  }))
+  if (!finalQuiz.value) return
+  const payload: FinalQuizAttemptSubmitAnswer[] = finalQuiz.value.questions.map((question) => {
+    if (question.q_type === 'single' || question.q_type === 'multiple') {
+      return {
+        questionId: question.id,
+        selectedAnswerIds: finalQuizSelectedAnswers.value[question.id] ?? [],
+      }
+    }
+
+    if (question.q_type === 'open') {
+      return {
+        questionId: question.id,
+        textAnswer: finalQuizOpenAnswers.value[question.id] ?? '',
+      }
+    }
+
+    if (question.q_type === 'sequence') {
+      return {
+        questionId: question.id,
+        orderedItemIds: finalQuizSequenceOrders.value[question.id] ?? [],
+      }
+    }
+
+    const pairsMap = finalQuizMatchingSelections.value[question.id] ?? {}
+    const matchingPairs = Object.entries(pairsMap)
+      .filter(([, rightId]) => rightId.length > 0)
+      .map(([leftId, rightId]) => ({ leftId, rightId }))
+
+    return {
+      questionId: question.id,
+      matchingPairs,
+    }
+  })
 
   finalQuizSubmitting.value = true
   finalQuizError.value = ''
@@ -877,17 +1321,17 @@ onBeforeUnmount(() => {
             </p>
 
             <div class="lesson-view__inline-answers">
-              <button
+              <Button
                 v-for="answer in currentQuickQuestion.answers"
                 :key="answer.id"
-                type="button"
+                variant="outline"
                 class="lesson-view__inline-answer"
                 :class="quickAnswerClass(currentQuickQuestion.id, answer.id)"
                 :disabled="quickCheckSubmitting"
                 @click="chooseQuickAnswer(currentQuickQuestion.id, answer.id)"
               >
                 <span>{{ answer.text }}</span>
-              </button>
+              </Button>
             </div>
 
             <p
@@ -969,45 +1413,148 @@ onBeforeUnmount(() => {
               v-for="(question, questionIndex) in finalQuiz.questions"
               :key="question.id"
               class="lesson-view__final-question-card"
+              :class="{
+                'lesson-view__final-question-card--incomplete': isFinalQuestionIncomplete(question.id),
+              }"
             >
               <h3 class="lesson-view__final-question-title">
                 {{ questionIndex + 1 }}. {{ question.text }}
               </h3>
               <p class="lesson-view__inline-question-meta">
-                {{
-                  question.q_type === 'multiple'
-                    ? 'Выберите несколько вариантов'
-                    : 'Выберите один вариант'
-                }}
+                {{ finalQuestionMetaLabel(question) }}
               </p>
 
-              <div class="lesson-view__inline-answers">
-                <label
+              <div v-if="question.q_type === 'single'" class="lesson-view__inline-answers">
+                <RadioGroup
+                  :model-value="finalQuizSelectedAnswers[question.id]?.[0] ?? ''"
+                  class="lesson-view__final-radio-group"
+                  @update:model-value="(value) => selectFinalSingle(question.id, String(value ?? ''))"
+                >
+                  <div
+                    v-for="answer in question.answers"
+                    :key="answer.id"
+                    class="lesson-view__inline-answer lesson-view__inline-answer--final"
+                  >
+                    <RadioGroupItem
+                      :id="`final-${question.id}-${answer.id}`"
+                      :value="answer.id"
+                    />
+                    <Label
+                      :for="`final-${question.id}-${answer.id}`"
+                      class="lesson-view__final-choice-label"
+                    >
+                      {{ answer.text }}
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              <div v-else-if="question.q_type === 'multiple'" class="lesson-view__inline-answers">
+                <div
                   v-for="answer in question.answers"
                   :key="answer.id"
                   class="lesson-view__inline-answer lesson-view__inline-answer--final"
                 >
-                  <input
-                    v-if="question.q_type === 'single'"
-                    :name="`final-${question.id}`"
-                    type="radio"
-                    :checked="isFinalAnswerSelected(question.id, answer.id)"
-                    @change="selectFinalSingle(question.id, answer.id)"
+                  <Checkbox
+                    :id="`final-${question.id}-${answer.id}`"
+                    :model-value="isFinalAnswerSelected(question.id, answer.id)"
+                    @update:model-value="setFinalMultipleChecked(question.id, answer.id, $event)"
                   />
-                  <input
-                    v-else
-                    type="checkbox"
-                    :checked="isFinalAnswerSelected(question.id, answer.id)"
-                    @change="toggleFinalMulti(question.id, answer.id)"
-                  />
-                  <span>{{ answer.text }}</span>
-                </label>
+                  <Label
+                    :for="`final-${question.id}-${answer.id}`"
+                    class="lesson-view__final-choice-label"
+                  >
+                    {{ answer.text }}
+                  </Label>
+                </div>
+              </div>
+
+              <div v-else-if="question.q_type === 'open'" class="lesson-view__final-open">
+                <Textarea
+                  class="lesson-view__final-textarea"
+                  :model-value="finalQuizOpenAnswers[question.id] ?? ''"
+                  rows="4"
+                  placeholder="Введите ваш ответ"
+                  @update:model-value="setFinalOpenAnswer(question.id, String($event ?? ''))"
+                />
+              </div>
+
+              <div v-else-if="question.q_type === 'sequence'" class="lesson-view__final-sequence">
+                <p class="lesson-view__final-sequence-hint">
+                  Перетаскивайте пункты мышкой, чтобы собрать правильный порядок.
+                </p>
+                <p
+                  v-if="getFinalSequenceItems(question).length === 0"
+                  class="lesson-view__final-config-error"
+                >
+                  Вопрос настроен некорректно. Обратитесь к администратору.
+                </p>
+                <TransitionGroup
+                  v-else
+                  tag="div"
+                  name="lesson-view__final-sequence"
+                  class="lesson-view__final-sequence-list"
+                >
+                  <div
+                    v-for="(item, index) in getFinalSequenceItems(question)"
+                    :key="item.id"
+                    class="lesson-view__final-sequence-item"
+                    :class="{
+                      'lesson-view__final-sequence-item--dragging': isFinalSequenceItemDragging(question.id, index),
+                    }"
+                    draggable="true"
+                    @dragstart="startFinalSequenceDrag(question, index, $event)"
+                    @dragend="endFinalSequenceDrag"
+                    @dragover="dragOverFinalSequenceItem(question, index, $event)"
+                    @dragenter.prevent
+                    @drop="dropFinalSequenceItem($event)"
+                  >
+                    <span class="lesson-view__final-sequence-number">{{ index + 1 }}</span>
+                    <span class="lesson-view__final-sequence-text">{{ item.text }}</span>
+                    <span class="lesson-view__final-sequence-drag-handle">⠿</span>
+                  </div>
+                </TransitionGroup>
+              </div>
+
+              <div v-else class="lesson-view__final-matching">
+                <p
+                  v-if="!getFinalMatchingConfig(question)"
+                  class="lesson-view__final-config-error"
+                >
+                  Вопрос настроен некорректно. Обратитесь к администратору.
+                </p>
+                <div v-else class="lesson-view__final-matching-list">
+                  <div
+                    v-for="leftItem in getFinalMatchingConfig(question)?.leftItems ?? []"
+                    :key="leftItem.id"
+                    class="lesson-view__final-matching-row"
+                  >
+                    <span class="lesson-view__final-matching-left">{{ leftItem.text }}</span>
+                    <Select
+                      :model-value="getFinalMatchingValue(question.id, leftItem.id)"
+                      @update:model-value="(value) => setFinalMatchingPair(question.id, leftItem.id, String(value ?? ''))"
+                    >
+                      <SelectTrigger class="lesson-view__final-matching-select">
+                        <SelectValue placeholder="Выберите вариант" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem
+                          v-for="rightItem in getFinalMatchingConfig(question)?.rightItems ?? []"
+                          :key="rightItem.id"
+                          :value="rightItem.id"
+                        >
+                          {{ rightItem.text }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
             </Card>
           </div>
 
           <div class="lesson-view__final-actions">
-            <Button :disabled="!canSubmitFinalQuiz || finalQuizSubmitting" @click="submitFinalQuiz">
+            <Button :disabled="finalQuizSubmitting" @click="requestFinalQuizSubmit">
               {{ finalQuizSubmitting ? 'Отправка...' : 'Завершить финальный тест' }}
             </Button>
           </div>
@@ -1016,6 +1563,25 @@ onBeforeUnmount(() => {
         <p v-else class="lesson-view__state">Финальный тест недоступен.</p>
       </Card>
     </template>
+
+    <Teleport to="body">
+      <div
+        v-if="finalQuizShowIncompleteConfirm"
+        class="lesson-view__confirm-overlay"
+        @click.self="closeFinalQuizConfirm"
+      >
+        <div class="lesson-view__confirm-dialog">
+          <h3 class="lesson-view__confirm-title">Не на все вопросы даны ответы</h3>
+          <p class="lesson-view__confirm-text">
+            Незаполненные вопросы подсвечены. Завершить тест сейчас и отправить его в текущем виде?
+          </p>
+          <div class="lesson-view__confirm-actions">
+            <Button variant="outline" @click="closeFinalQuizConfirm">Вернуться к вопросам</Button>
+            <Button @click="confirmFinalQuizSubmit">Завершить всё равно</Button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -1300,7 +1866,7 @@ onBeforeUnmount(() => {
 }
 
 .lesson-view__inline-answer--final {
-  cursor: default;
+  cursor: pointer;
 }
 
 .lesson-view__quick-answer--correct {
@@ -1313,9 +1879,16 @@ onBeforeUnmount(() => {
   background: hsl(0 86% 95%);
 }
 
-.lesson-view__inline-answer input {
-  margin: 0;
-  flex-shrink: 0;
+.lesson-view__final-radio-group {
+  display: grid;
+  gap: 8px;
+}
+
+.lesson-view__final-choice-label {
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 400;
 }
 
 .lesson-view__quick-feedback {
@@ -1382,16 +1955,158 @@ onBeforeUnmount(() => {
   border-radius: 12px;
 }
 
+.lesson-view__final-question-card--incomplete {
+  border-color: hsl(0 60% 84%);
+  box-shadow: 0 0 0 1px hsl(0 60% 87%), 0 10px 24px hsl(0 38% 60% / 0.08);
+}
+
 .lesson-view__final-question-title {
   margin: 0;
   font-size: 17px;
   line-height: 1.3;
 }
 
+.lesson-view__final-open {
+  display: grid;
+}
+
+.lesson-view__final-textarea {
+  min-height: 88px;
+  line-height: 1.4;
+}
+
+.lesson-view__final-sequence-list {
+  display: grid;
+  gap: 8px;
+}
+
+.lesson-view__final-sequence-move {
+  transition: transform 0.18s ease;
+}
+
+.lesson-view__final-sequence-hint {
+  margin: 0;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.lesson-view__final-sequence-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  cursor: grab;
+}
+
+.lesson-view__final-sequence-item:active {
+  cursor: grabbing;
+}
+
+.lesson-view__final-sequence-item--dragging {
+  opacity: 0.5;
+  border-color: hsl(var(--ring));
+  background: hsl(var(--muted));
+}
+
+.lesson-view__final-sequence-number {
+  min-width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  font-size: 12px;
+}
+
+.lesson-view__final-sequence-text {
+  font-size: 14px;
+}
+
+.lesson-view__final-sequence-drag-handle {
+  font-size: 18px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1;
+  user-select: none;
+}
+
+.lesson-view__final-matching-list {
+  display: grid;
+  gap: 8px;
+}
+
+.lesson-view__final-matching-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(200px, 280px);
+  gap: 10px;
+  align-items: center;
+}
+
+.lesson-view__final-matching-left {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.lesson-view__final-matching-select {
+  height: 36px;
+}
+
+.lesson-view__final-config-error {
+  margin: 0;
+  font-size: 13px;
+  color: hsl(var(--destructive));
+}
+
 .lesson-view__final-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lesson-view__confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: hsl(0 0% 9% / 0.38);
+  backdrop-filter: blur(4px);
+}
+
+.lesson-view__confirm-dialog {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 18px;
+  background: hsl(var(--background));
+  box-shadow: 0 24px 70px hsl(0 0% 9% / 0.18);
+}
+
+.lesson-view__confirm-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.lesson-view__confirm-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
+.lesson-view__confirm-actions {
+  display: flex;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -1475,6 +2190,10 @@ onBeforeUnmount(() => {
   .lesson-view__final-actions :deep(button) {
     width: 100%;
     justify-content: center;
+  }
+
+  .lesson-view__final-matching-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>
