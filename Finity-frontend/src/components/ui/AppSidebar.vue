@@ -1,14 +1,17 @@
 ﻿<script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ChevronDown } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
 import { useLearningStore } from '@/stores/learning'
+import { interactiveToolLinks } from '@/lib/tool-navigation'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import iconLogin from '@/assets/icons/sidebar/login.svg'
 import iconRegister from '@/assets/icons/sidebar/register.svg'
 import iconLearning from '@/assets/icons/sidebar/learning.svg'
+import iconTools from '@/assets/icons/sidebar/tools.svg'
 import iconProfile from '@/assets/icons/sidebar/profile.svg'
 import iconSettings from '@/assets/icons/sidebar/settings.svg'
 import iconLogout from '@/assets/icons/sidebar/logout.svg'
@@ -27,18 +30,20 @@ const router = useRouter()
 const auth = useAuthStore()
 const userStore = useUserStore()
 const learningStore = useLearningStore()
+const toolsExpanded = ref(false)
 
 const sidebarIconMap = {
   login: iconLogin,
   register: iconRegister,
   learning: iconLearning,
+  tools: iconTools,
   profile: iconProfile,
   settings: iconSettings,
   logout: iconLogout,
   admin: iconAdmin,
 } as const
 
-const links = computed(() => {
+const publicLinks = computed(() => {
   if (!auth.isAuthenticated) {
     return [
       { name: 'Вход', to: '/login', iconKey: 'login' },
@@ -46,22 +51,41 @@ const links = computed(() => {
     ]
   }
 
-  const authenticatedLinks = [
+  return []
+})
+
+const primaryLinks = computed(() => {
+  if (!auth.isAuthenticated) {
+    return []
+  }
+
+  return [
     { name: 'Профиль', to: '/profile', iconKey: 'profile' },
     { name: 'Обучение', to: '/learning', iconKey: 'learning' },
-    { name: 'Настройки', to: '/settings', iconKey: 'settings' },
   ]
+})
+
+const secondaryLinks = computed(() => {
+  if (!auth.isAuthenticated) {
+    return []
+  }
+
+  const links = [{ name: 'Настройки', to: '/settings', iconKey: 'settings' }]
 
   if (auth.user?.role === 'admin') {
-    authenticatedLinks.splice(2, 0, {
+    links.push({
       name: 'Конструктор',
       to: '/admin/learning',
       iconKey: 'admin',
     })
   }
 
-  return authenticatedLinks
+  return links
 })
+
+const toolLinks = computed(() => interactiveToolLinks)
+const isToolsSectionActive = computed(() => route.path === '/tools' || route.path.startsWith('/tools/'))
+
 const avatarUrl = computed(() => {
   const value = userStore.profile?.base_params?.avatar_data_url
   return typeof value === 'string' ? value : undefined
@@ -90,8 +114,26 @@ function toggleSidebar(event: MouseEvent) {
   }
 }
 
+function toggleToolsSection(event: MouseEvent) {
+  if (!props.open) {
+    emit('update:open', true)
+    toolsExpanded.value = true
+  } else {
+    toolsExpanded.value = !toolsExpanded.value
+  }
+
+  if (event.detail > 0) {
+    const button = event.currentTarget as HTMLButtonElement | null
+    button?.blur()
+  }
+}
+
 function isLinkActive(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`)
+}
+
+function isToolLinkActive(path: string) {
+  return route.path === path
 }
 
 async function onLogout() {
@@ -112,6 +154,16 @@ watch(
   () => auth.isAuthenticated,
   () => {
     void ensureProfileLoaded()
+  },
+  { immediate: true },
+)
+
+watch(
+  isToolsSectionActive,
+  (active) => {
+    if (active) {
+      toolsExpanded.value = true
+    }
   },
   { immediate: true },
 )
@@ -150,22 +202,84 @@ onMounted(() => {
 
     <nav class="app-sidebar__nav">
       <RouterLink
-        v-for="link in links"
+        v-for="link in publicLinks"
         :key="link.to"
         :to="link.to"
         class="app-sidebar__link"
         :class="{ 'app-sidebar__link--active': isLinkActive(link.to), 'app-sidebar__link--compact': !props.open }"
         :title="!props.open ? link.name : undefined"
       >
-        <span
-          class="app-sidebar__icon"
-          :style="{ '--sidebar-icon': iconMask(link.iconKey) }"
-          aria-hidden="true"
-        />
+        <span class="app-sidebar__icon" :style="{ '--sidebar-icon': iconMask(link.iconKey) }" aria-hidden="true" />
         <span class="app-sidebar__label" :class="{ 'app-sidebar__label--hidden': !props.open }">
           {{ link.name }}
         </span>
       </RouterLink>
+
+      <template v-if="auth.isAuthenticated">
+        <RouterLink
+          v-for="link in primaryLinks"
+          :key="link.to"
+          :to="link.to"
+          class="app-sidebar__link"
+          :class="{ 'app-sidebar__link--active': isLinkActive(link.to), 'app-sidebar__link--compact': !props.open }"
+          :title="!props.open ? link.name : undefined"
+        >
+          <span class="app-sidebar__icon" :style="{ '--sidebar-icon': iconMask(link.iconKey) }" aria-hidden="true" />
+          <span class="app-sidebar__label" :class="{ 'app-sidebar__label--hidden': !props.open }">
+            {{ link.name }}
+          </span>
+        </RouterLink>
+
+        <div class="app-sidebar__section" :class="{ 'app-sidebar__section--active': isToolsSectionActive }">
+          <button
+            type="button"
+            class="app-sidebar__section-trigger"
+            :class="{
+              'app-sidebar__section-trigger--active': isToolsSectionActive,
+              'app-sidebar__section-trigger--compact': !props.open,
+            }"
+            :title="!props.open ? 'Инструменты' : undefined"
+            @click="toggleToolsSection"
+          >
+            <span class="app-sidebar__icon" :style="{ '--sidebar-icon': iconMask('tools') }" aria-hidden="true" />
+            <span class="app-sidebar__section-label" :class="{ 'app-sidebar__section-label--hidden': !props.open }">
+              Инструменты
+            </span>
+            <ChevronDown
+              v-if="props.open"
+              class="app-sidebar__section-chevron"
+              :class="{ 'app-sidebar__section-chevron--open': toolsExpanded }"
+            />
+          </button>
+
+          <div v-if="props.open && toolsExpanded" class="app-sidebar__section-list">
+            <RouterLink
+              v-for="tool in toolLinks"
+              :key="tool.to"
+              :to="tool.to"
+              class="app-sidebar__section-item"
+              :class="{ 'app-sidebar__section-item--active': isToolLinkActive(tool.to) }"
+            >
+              <span class="app-sidebar__section-marker" aria-hidden="true" />
+              <span class="app-sidebar__section-item-label">{{ tool.shortName }}</span>
+            </RouterLink>
+          </div>
+        </div>
+
+        <RouterLink
+          v-for="link in secondaryLinks"
+          :key="link.to"
+          :to="link.to"
+          class="app-sidebar__link"
+          :class="{ 'app-sidebar__link--active': isLinkActive(link.to), 'app-sidebar__link--compact': !props.open }"
+          :title="!props.open ? link.name : undefined"
+        >
+          <span class="app-sidebar__icon" :style="{ '--sidebar-icon': iconMask(link.iconKey) }" aria-hidden="true" />
+          <span class="app-sidebar__label" :class="{ 'app-sidebar__label--hidden': !props.open }">
+            {{ link.name }}
+          </span>
+        </RouterLink>
+      </template>
     </nav>
 
     <footer
@@ -187,11 +301,7 @@ onMounted(() => {
 
       <Button v-if="props.open" variant="outline" class="app-sidebar__button" @click="onLogout">Выйти</Button>
       <Button v-else variant="ghost" size="icon" class="app-sidebar__compact-action" title="Выйти" @click="onLogout">
-        <span
-          class="app-sidebar__icon"
-          :style="{ '--sidebar-icon': iconMask('logout') }"
-          aria-hidden="true"
-        />
+        <span class="app-sidebar__icon" :style="{ '--sidebar-icon': iconMask('logout') }" aria-hidden="true" />
       </Button>
     </footer>
   </aside>
@@ -334,36 +444,51 @@ onMounted(() => {
   margin-top: 2px;
 }
 
-.app-sidebar__link {
+.app-sidebar__link,
+.app-sidebar__section-trigger,
+.app-sidebar__section-item {
+  text-decoration: none;
+  color: hsl(var(--foreground));
+}
+
+.app-sidebar__link,
+.app-sidebar__section-trigger {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 40px;
   border-radius: 10px;
   padding: 8px 10px;
-  text-decoration: none;
   font-size: 14px;
-  color: hsl(var(--foreground));
   transition: background-color 0.15s ease, color 0.15s ease;
   cursor: pointer;
   user-select: none;
+  border: 0;
+  background: transparent;
+  width: 100%;
 }
 
-.app-sidebar__link--compact {
+.app-sidebar__link--compact,
+.app-sidebar__section-trigger--compact {
   justify-content: center;
   padding: 8px;
 }
 
-.app-sidebar__link:hover {
+.app-sidebar__link:hover,
+.app-sidebar__section-trigger:hover,
+.app-sidebar__section-item:hover {
   background: hsl(var(--accent));
 }
 
-.app-sidebar__link--active {
+.app-sidebar__link--active,
+.app-sidebar__section-trigger--active,
+.app-sidebar__section-item--active {
   background: hsl(var(--accent) / 0.9);
   color: hsl(var(--accent-foreground));
 }
 
-.app-sidebar__label {
+.app-sidebar__label,
+.app-sidebar__section-label {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -381,7 +506,8 @@ onMounted(() => {
   display: none;
 }
 
-.app-sidebar__label--hidden {
+.app-sidebar__label--hidden,
+.app-sidebar__section-label--hidden {
   max-width: 0;
   opacity: 0;
   transform: translateX(-4px);
@@ -395,6 +521,61 @@ onMounted(() => {
   -webkit-mask: var(--sidebar-icon) center / contain no-repeat;
   mask: var(--sidebar-icon) center / contain no-repeat;
   flex-shrink: 0;
+}
+
+.app-sidebar__section {
+  display: grid;
+  gap: 6px;
+}
+
+.app-sidebar__section-list {
+  display: grid;
+  gap: 4px;
+  padding-left: 40px;
+}
+
+.app-sidebar__section-item {
+  min-height: 34px;
+  border-radius: 10px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.app-sidebar__section-marker {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.65;
+  flex-shrink: 0;
+}
+
+.app-sidebar__section-item-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-sidebar__section-chevron {
+  width: 16px;
+  height: 16px;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+  margin-left: auto;
+}
+
+.app-sidebar__section-trigger--active .app-sidebar__section-chevron {
+  color: currentColor;
+}
+
+.app-sidebar__section-chevron--open {
+  transform: rotate(180deg);
 }
 
 .app-sidebar__footer {
@@ -469,6 +650,9 @@ onMounted(() => {
     width: 254px;
     padding: 12px;
   }
+
+  .app-sidebar__section-list {
+    padding-left: 34px;
+  }
 }
 </style>
-

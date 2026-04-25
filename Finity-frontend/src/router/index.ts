@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { interactiveToolLinks } from '@/lib/tool-navigation'
 
 const LoginView = () => import('@/views/LoginView.vue')
 const RegisterView = () => import('@/views/RegisterView.vue')
@@ -12,6 +13,7 @@ const LessonView = () => import('@/views/LessonView.vue')
 const LessonTestResultView = () => import('@/views/LessonTestResultView.vue')
 const QuizView = () => import('@/views/QuizView.vue')
 const AdminLearningView = () => import('@/views/AdminLearningView.vue')
+const ToolsView = () => import('@/views/ToolsView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -86,6 +88,20 @@ const router = createRouter({
       component: AdminLearningView,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
+    {
+      path: '/tools',
+      name: 'tools-home',
+      component: ToolsView,
+      meta: { requiresAuth: true, toolId: 'overview' },
+    },
+    ...interactiveToolLinks
+      .filter((tool) => tool.id !== 'overview')
+      .map((tool) => ({
+        path: tool.to,
+        name: tool.routeName,
+        component: ToolsView,
+        meta: { requiresAuth: true, toolId: tool.id },
+      })),
   ],
 })
 
