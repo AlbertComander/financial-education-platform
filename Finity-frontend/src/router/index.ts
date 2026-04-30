@@ -96,6 +96,12 @@ const router = createRouter({
       meta: { requiresAuth: true, toolId: 'overview' },
     },
     {
+      path: '/demo-account/instruments/:instrumentId',
+      name: 'demo-account-instrument',
+      component: DemoAccountView,
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/demo-account',
       name: 'demo-account',
       component: DemoAccountView,

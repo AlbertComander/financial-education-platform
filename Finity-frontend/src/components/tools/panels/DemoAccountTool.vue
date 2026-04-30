@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { DollarSign, Euro, RefreshCw, RussianRuble, Search } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +13,8 @@ type AccountTab = 'overview' | 'catalog' | 'analytics' | 'events'
 type CatalogKind = 'all' | 'stock' | 'currency' | 'etf' | 'bond' | 'future' | 'option' | 'strategy' | 'index' | 'favorite'
 
 const store = useDemoAccountStore()
+const route = useRoute()
+const router = useRouter()
 const activeTab = ref<AccountTab>('overview')
 const displayCurrency = ref<DisplayCurrency>('RUB')
 const searchQuery = ref('')
@@ -50,10 +53,10 @@ const catalogKinds: Array<{ id: CatalogKind; label: string }> = [
   { id: 'favorite', label: 'Избранное' },
 ]
 
-const portfolioTotalRub = computed(() => Number(store.summary?.totalValue ?? 0))
-const cashValueRub = computed(() => Number(store.summary?.cashValueRub ?? store.summary?.cashBalance ?? 0))
-const positionsValueRub = computed(() => Number(store.summary?.positionsValue ?? 0))
-const investedValueRub = computed(() => Number(store.summary?.investedValue ?? 0))
+const portfolioTotalRub = computed(() => toFiniteNumber(store.summary?.totalValue, 0))
+const cashValueRub = computed(() => toFiniteNumber(store.summary?.cashValueRub ?? store.summary?.cashBalance, 0))
+const positionsValueRub = computed(() => toFiniteNumber(store.summary?.positionsValue, 0))
+const investedValueRub = computed(() => toFiniteNumber(store.summary?.investedValue, 0))
 const portfolioPnlRub = computed(() => positionsValueRub.value - investedValueRub.value)
 const pricedInstruments = computed(() => store.instruments.filter((instrument) => instrument.demo_price_cache))
 const displayRate = computed(() => {
@@ -120,7 +123,7 @@ const events = computed(() => [
     title: `${trade.side === 'buy' ? 'Покупка' : 'Продажа'} ${trade.demo_instruments.symbol}`,
     subtitle: `${formatQuantity(trade.quantity)} шт. · ${formatMoney(trade.price, trade.currency)}`,
     date: trade.executed_at,
-    amount: trade.side === 'buy' ? -Number(trade.price) * Number(trade.quantity) : Number(trade.price) * Number(trade.quantity),
+    amount: trade.side === 'buy' ? -toFiniteNumber(trade.price) * toFiniteNumber(trade.quantity) : toFiniteNumber(trade.price) * toFiniteNumber(trade.quantity),
     currency: trade.currency,
   })),
   ...store.transactions.map((transaction) => ({
@@ -128,7 +131,7 @@ const events = computed(() => [
     title: transaction.description ?? 'Операция по счету',
     subtitle: transaction.kind,
     date: transaction.effective_at,
-    amount: Number(transaction.amount),
+    amount: toFiniteNumber(transaction.amount),
     currency: transaction.currency,
   })),
 ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()))
@@ -148,12 +151,6 @@ const chartPolyline = computed(() => {
     })
     .join(' ')
 })
-
-const quoteCoverage = computed(() => {
-  if (store.instruments.length === 0) return 0
-  return Math.round((pricedInstruments.value.length / store.instruments.length) * 100)
-})
-const isCatalogLoading = computed(() => store.isLoading || store.isMutating)
 
 function instrumentInitials(instrument: DemoInstrument) {
   return instrument.symbol.slice(0, 2).toUpperCase()
@@ -183,43 +180,64 @@ function priceText(instrument: DemoInstrument) {
 function changeAbsText(instrument: DemoInstrument) {
   const value = instrument.demo_price_cache?.change_abs
   if (value === null || value === undefined) return '—'
-  const amount = Number(value)
+  const amount = toFiniteNumber(value, Number.NaN)
+  if (!Number.isFinite(amount)) return '—'
   return `${amount >= 0 ? '+' : ''}${formatMoney(amount, instrument.demo_price_cache?.currency ?? instrument.currency)}`
 }
 
 function findRate(symbol: string) {
   const instrument = store.instruments.find((item) => item.symbol === symbol)
-  const price = Number(instrument?.demo_price_cache?.price)
+  const price = toFiniteNumber(instrument?.demo_price_cache?.price, Number.NaN)
   return Number.isFinite(price) && price > 0 ? price : null
 }
 
 function sumPositionsBy(assetType: string) {
   return store.positions
     .filter((position) => position.demo_instruments.asset_type === assetType)
-    .reduce((sum, position) => sum + Number(position.marketValueRub), 0)
+    .reduce((sum, position) => sum + toFiniteNumber(position.marketValueRub), 0)
 }
 
 function cashAmount(currency: string) {
-  return Number(store.cashBalances.find((balance) => balance.currency === currency)?.amount ?? 0)
+  return toFiniteNumber(store.cashBalances.find((balance) => balance.currency === currency)?.amount, 0)
 }
 
-function formatMoney(value: string | number, currency = 'RUB') {
-  const amount = typeof value === 'string' ? Number(value) : value
+function toFiniteNumber(value: unknown, fallback = 0) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : fallback
+  if (typeof value === 'bigint') return Number(value)
+  if (typeof value === 'string') {
+    const normalized = value.replace(',', '.').trim()
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+  if (value && typeof value === 'object') {
+    const text = String(value)
+    if (text !== '[object Object]') {
+      const parsed = Number(text.replace(',', '.'))
+      return Number.isFinite(parsed) ? parsed : fallback
+    }
+  }
+  return fallback
+}
+
+function formatMoney(value: unknown, currency = 'RUB') {
+  const amount = toFiniteNumber(value, Number.NaN)
+  if (!Number.isFinite(amount)) return '—'
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
     currency,
     maximumFractionDigits: 2,
-  }).format(Number.isFinite(amount) ? amount : 0)
+  }).format(amount)
 }
 
-function formatQuantity(value: string | number) {
-  const amount = typeof value === 'string' ? Number(value) : value
+function formatQuantity(value: unknown) {
+  const amount = toFiniteNumber(value, 0)
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 8 }).format(Number.isFinite(amount) ? amount : 0)
 }
 
 function formatPercent(value: string | null) {
   if (value === null) return '—'
-  const amount = Number(value)
+  const amount = toFiniteNumber(value, Number.NaN)
+  if (!Number.isFinite(amount)) return '—'
   return `${amount >= 0 ? '+' : ''}${amount.toFixed(2)}%`
 }
 
@@ -243,11 +261,11 @@ function quantityFor(instrument: DemoInstrument) {
 }
 
 function sellQuantityFor(position: DemoPosition) {
-  return sellQuantities[position.instrument_id] ?? Number(position.quantity)
+  return sellQuantities[position.instrument_id] ?? toFiniteNumber(position.quantity)
 }
 
-function isPositive(value: string | number) {
-  return Number(value) >= 0
+function isPositive(value: unknown) {
+  return toFiniteNumber(value) >= 0
 }
 
 function switchDisplayCurrency() {
@@ -271,14 +289,19 @@ async function exchangeCurrency() {
 }
 
 async function buyInstrument(instrument: DemoInstrument) {
-  await store.placeTrade('buy', Number(instrument.id), quantityFor(instrument))
+  await store.placeTrade('buy', toFiniteNumber(instrument.id), quantityFor(instrument))
 }
 
 async function sellPosition(position: DemoPosition) {
-  await store.placeTrade('sell', Number(position.instrument_id), sellQuantityFor(position))
+  await store.placeTrade('sell', toFiniteNumber(position.instrument_id), sellQuantityFor(position))
 }
 
 async function openInstrument(instrument: DemoInstrument) {
+  await router.push({ name: 'demo-account-instrument', params: { instrumentId: instrument.id } })
+}
+
+async function openInstrumentPage(instrument: DemoInstrument) {
+  activeTab.value = 'catalog'
   selectedCatalogInstrumentId.value = instrument.id
   selectedInstrumentFallback.value = {
     instrument,
@@ -292,10 +315,13 @@ async function openInstrument(instrument: DemoInstrument) {
   void store.fetchInstrumentDetails(instrument.id)
 }
 
-function closeInstrument() {
+async function closeInstrument() {
   selectedCatalogInstrumentId.value = null
   selectedInstrumentFallback.value = null
   store.clearInstrumentDetails()
+  if (route.name === 'demo-account-instrument') {
+    await router.push({ name: 'demo-account' })
+  }
 }
 
 async function initDemoAccount() {
@@ -303,11 +329,34 @@ async function initDemoAccount() {
   if (store.instruments.length > 0 && pricedInstruments.value.length < store.instruments.length) {
     await store.refreshQuotes()
   }
+  await syncInstrumentRoute()
+}
+
+async function syncInstrumentRoute() {
+  const instrumentId = typeof route.params.instrumentId === 'string' ? route.params.instrumentId : null
+  if (!instrumentId) return
+  const instrument = store.instruments.find((item) => item.id === instrumentId)
+  if (instrument) {
+    await openInstrumentPage(instrument)
+    return
+  }
+
+  activeTab.value = 'catalog'
+  selectedCatalogInstrumentId.value = instrumentId
+  selectedInstrumentFallback.value = null
+  void store.fetchInstrumentDetails(instrumentId)
 }
 
 onMounted(() => {
   void initDemoAccount()
 })
+
+watch(
+  () => route.params.instrumentId,
+  () => {
+    void syncInstrumentRoute()
+  },
+)
 </script>
 
 <template>
@@ -466,21 +515,6 @@ onMounted(() => {
 
       <h2>Каталог {{ catalogKind === 'stock' ? 'акций' : 'инструментов' }}</h2>
 
-      <section class="demo-account__catalog-status">
-        <article>
-          <span>Инструментов найдено</span>
-          <strong>{{ catalogInstruments.length }}</strong>
-        </article>
-        <article>
-          <span>Котировки загружены</span>
-          <strong>{{ isCatalogLoading ? 'Обновляем' : `${quoteCoverage}%` }}</strong>
-        </article>
-        <article>
-          <span>Источники данных</span>
-          <strong>MOEX ISS / Stooq</strong>
-        </article>
-      </section>
-
       <div class="demo-account__filters">
         <select v-model="filterCurrency" class="demo-account__select">
           <option value="all">Валюта</option>
@@ -525,7 +559,7 @@ onMounted(() => {
             <span
               :class="{
                 'demo-account__positive':
-                  Number(selectedInstrumentDetails.instrument.demo_price_cache?.change_percent ?? 0) >= 0,
+                  isPositive(selectedInstrumentDetails.instrument.demo_price_cache?.change_percent),
               }"
             >
               {{ formatPercent(selectedInstrumentDetails.instrument.demo_price_cache?.change_percent ?? null) }}
@@ -579,7 +613,7 @@ onMounted(() => {
           </article>
           <article>
             <span>За период</span>
-            <strong :class="{ 'demo-account__positive': Number(selectedInstrumentDetails.stats.periodChangePercent ?? 0) >= 0 }">
+            <strong :class="{ 'demo-account__positive': isPositive(selectedInstrumentDetails.stats.periodChangePercent) }">
               {{ selectedInstrumentDetails.stats.periodChangePercent === null ? '—' : `${selectedInstrumentDetails.stats.periodChangePercent.toFixed(2)}%` }}
             </strong>
           </article>
@@ -620,7 +654,7 @@ onMounted(() => {
             <span>{{ quoteAge(instrument) }}</span>
           </div>
           <div class="demo-account__change-cell">
-            <b :class="{ 'demo-account__positive': Number(instrument.demo_price_cache?.change_percent ?? 0) >= 0 }">
+            <b :class="{ 'demo-account__positive': isPositive(instrument.demo_price_cache?.change_percent) }">
               {{ formatPercent(instrument.demo_price_cache?.change_percent ?? null) }}
             </b>
             <span>{{ changeAbsText(instrument) }}</span>
@@ -978,26 +1012,6 @@ onMounted(() => {
 
 .demo-account__filters {
   align-items: center;
-}
-
-.demo-account__catalog-status {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.demo-account__catalog-status article {
-  display: grid;
-  gap: 6px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 14px;
-  background: hsl(var(--card));
-  padding: 14px 16px;
-}
-
-.demo-account__catalog-status span {
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
 }
 
 .demo-account__table {
