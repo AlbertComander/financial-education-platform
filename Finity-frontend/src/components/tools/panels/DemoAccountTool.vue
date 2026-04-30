@@ -231,6 +231,16 @@ onMounted(() => {
           </div>
           <Button variant="secondary" :disabled="store.isMutating" @click="createSalaryRule">Добавить</Button>
         </div>
+
+        <div v-if="store.incomeRules.length" class="demo-account__income-rules">
+          <article v-for="rule in store.incomeRules" :key="rule.id" class="demo-account__income-rule">
+            <div>
+              <strong>{{ rule.title }}</strong>
+              <span>{{ formatMoney(rule.amount, rule.currency) }} · {{ rule.day_of_month }} число</span>
+            </div>
+            <small>{{ rule.is_active ? formatDate(rule.next_run_at) : 'пауза' }}</small>
+          </article>
+        </div>
       </section>
 
       <section class="demo-account__panel">
@@ -575,13 +585,15 @@ onMounted(() => {
 }
 
 .demo-account__list,
-.demo-account__positions {
+.demo-account__positions,
+.demo-account__income-rules {
   display: grid;
   gap: 10px;
 }
 
 .demo-account__list-item,
-.demo-account__position {
+.demo-account__position,
+.demo-account__income-rule {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -596,21 +608,31 @@ onMounted(() => {
 }
 
 .demo-account__list-item:last-child,
-.demo-account__position:last-child {
+.demo-account__position:last-child,
+.demo-account__income-rule:last-child {
   border-bottom: 0;
 }
 
 .demo-account__list-item div,
-.demo-account__position div {
+.demo-account__position div,
+.demo-account__income-rule div {
   display: grid;
   gap: 3px;
 }
 
 .demo-account__list-item span,
 .demo-account__position span,
-.demo-account__position small {
+.demo-account__position small,
+.demo-account__income-rule span,
+.demo-account__income-rule small {
   color: hsl(var(--muted-foreground));
   font-size: 13px;
+}
+
+.demo-account__income-rules {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid hsl(var(--border));
 }
 
 .demo-account__market {

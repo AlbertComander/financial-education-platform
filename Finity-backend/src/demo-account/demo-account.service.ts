@@ -23,20 +23,24 @@ export class DemoAccountService {
 
   async getOverview(userId: bigint) {
     const account = await this.ensureAccount(userId);
+    await this.applyDueIncomeRules(account.id);
+    const freshAccount = await this.prisma.demo_accounts.findUniqueOrThrow({
+      where: { id: account.id },
+    });
     const [transactions, incomeRules, instruments, positions, trades] =
       await Promise.all([
       this.prisma.demo_cash_transactions.findMany({
-        where: { account_id: account.id },
+        where: { account_id: freshAccount.id },
         orderBy: { effective_at: 'desc' },
         take: 8,
       }),
       this.prisma.demo_income_rules.findMany({
-        where: { account_id: account.id },
+        where: { account_id: freshAccount.id },
         orderBy: { created_at: 'desc' },
       }),
       this.listInstruments(),
       this.prisma.demo_positions.findMany({
-        where: { account_id: account.id },
+        where: { account_id: freshAccount.id },
         include: {
           demo_instruments: {
             include: { demo_price_cache: true },
@@ -45,7 +49,7 @@ export class DemoAccountService {
         orderBy: { updated_at: 'desc' },
       }),
       this.prisma.demo_trades.findMany({
-        where: { account_id: account.id },
+        where: { account_id: freshAccount.id },
         include: { demo_instruments: true },
         orderBy: { executed_at: 'desc' },
         take: 8,
@@ -65,16 +69,16 @@ export class DemoAccountService {
     );
 
     return {
-      account,
+      account: freshAccount,
       transactions,
       incomeRules,
       instruments,
       positions: positionViews,
       trades,
       summary: {
-        cashBalance: account.cash_balance,
+        cashBalance: freshAccount.cash_balance,
         positionsValue,
-        totalValue: account.cash_balance.plus(positionsValue),
+        totalValue: freshAccount.cash_balance.plus(positionsValue),
         investedValue,
       },
     };
@@ -443,6 +447,63 @@ export class DemoAccountService {
     );
   }
 
+  private async applyDueIncomeRules(accountId: bigint) {
+    const now = new Date();
+    const dueRules = await this.prisma.demo_income_rules.findMany({
+      where: {
+        account_id: accountId,
+        is_active: true,
+        next_run_at: { lte: now },
+      },
+      orderBy: { next_run_at: 'asc' },
+    });
+
+    if (dueRules.length === 0) return;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const rule of dueRules) {
+        const effectiveAt = rule.next_run_at ?? now;
+        const updatedAccount = await tx.demo_accounts.update({
+          where: { id: accountId },
+          data: {
+            cash_balance: { increment: rule.amount },
+            updated_at: new Date(),
+          },
+        });
+
+        await tx.demo_cash_transactions.create({
+          data: {
+            account_id: accountId,
+            kind: 'scheduled_income',
+            amount: rule.amount,
+            currency: rule.currency,
+            description: rule.title,
+            effective_at: effectiveAt,
+          },
+        });
+
+        await tx.demo_income_rules.update({
+          where: { id: rule.id },
+          data: {
+            next_run_at: this.nextMonthlyRunAfter(rule.day_of_month, effectiveAt),
+            updated_at: new Date(),
+          },
+        });
+
+        await tx.demo_portfolio_snapshots.create({
+          data: {
+            account_id: accountId,
+            cash_value: updatedAccount.cash_balance,
+            positions_value: new Prisma.Decimal(0),
+            total_value: updatedAccount.cash_balance,
+            invested_value: new Prisma.Decimal(0),
+            snapshot_at: effectiveAt,
+          },
+        });
+      }
+    });
+  }
+
   private async getRubRates() {
     const instruments = await this.prisma.demo_instruments.findMany({
       where: { symbol: { in: ['USDRUB', 'EURRUB'] } },
@@ -552,6 +613,12 @@ export class DemoAccountService {
     }
 
     return next;
+  }
+
+  private nextMonthlyRunAfter(dayOfMonth: number, after: Date): Date {
+    return new Date(
+      Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, dayOfMonth, 9, 0, 0),
+    );
   }
 
   private toPrismaJson(value: unknown): Prisma.InputJsonValue {
