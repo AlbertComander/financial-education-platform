@@ -148,6 +148,44 @@ const chartPolyline = computed(() => {
     .join(' ')
 })
 
+const quoteCoverage = computed(() => {
+  if (store.instruments.length === 0) return 0
+  return Math.round((pricedInstruments.value.length / store.instruments.length) * 100)
+})
+const isCatalogLoading = computed(() => store.isLoading || store.isMutating)
+
+function instrumentInitials(instrument: DemoInstrument) {
+  return instrument.symbol.slice(0, 2).toUpperCase()
+}
+
+function instrumentCountry(instrument: DemoInstrument) {
+  return instrument.exchange?.includes('MOEX') ? 'Россия' : 'США'
+}
+
+function instrumentTone(instrument: DemoInstrument) {
+  if (instrument.exchange?.includes('MOEX')) return 'demo-account__logo--ru'
+  if (instrument.asset_type === 'currency') return 'demo-account__logo--fx'
+  if (instrument.asset_type === 'etf') return 'demo-account__logo--fund'
+  return 'demo-account__logo--us'
+}
+
+function quoteAge(instrument: DemoInstrument) {
+  const value = instrument.demo_price_cache?.as_of
+  return value ? formatDate(value) : 'котировка не загружена'
+}
+
+function priceText(instrument: DemoInstrument) {
+  const quote = instrument.demo_price_cache
+  return quote ? formatMoney(quote.price, quote.currency) : 'Обновите котировки'
+}
+
+function changeAbsText(instrument: DemoInstrument) {
+  const value = instrument.demo_price_cache?.change_abs
+  if (value === null || value === undefined) return '—'
+  const amount = Number(value)
+  return `${amount >= 0 ? '+' : ''}${formatMoney(amount, instrument.demo_price_cache?.currency ?? instrument.currency)}`
+}
+
 function findRate(symbol: string) {
   const instrument = store.instruments.find((item) => item.symbol === symbol)
   const price = Number(instrument?.demo_price_cache?.price)
@@ -179,7 +217,7 @@ function formatQuantity(value: string | number) {
 }
 
 function formatPercent(value: string | null) {
-  if (value === null) return '0%'
+  if (value === null) return '—'
   const amount = Number(value)
   return `${amount >= 0 ? '+' : ''}${amount.toFixed(2)}%`
 }
@@ -244,8 +282,15 @@ function closeInstrument() {
   store.clearInstrumentDetails()
 }
 
+async function initDemoAccount() {
+  await store.fetchOverview()
+  if (store.instruments.length > 0 && pricedInstruments.value.length < store.instruments.length) {
+    await store.refreshQuotes()
+  }
+}
+
 onMounted(() => {
-  void store.fetchOverview()
+  void initDemoAccount()
 })
 </script>
 
@@ -405,6 +450,21 @@ onMounted(() => {
 
       <h2>Каталог {{ catalogKind === 'stock' ? 'акций' : 'инструментов' }}</h2>
 
+      <section class="demo-account__catalog-status">
+        <article>
+          <span>Инструментов найдено</span>
+          <strong>{{ catalogInstruments.length }}</strong>
+        </article>
+        <article>
+          <span>Котировки загружены</span>
+          <strong>{{ isCatalogLoading ? 'Обновляем' : `${quoteCoverage}%` }}</strong>
+        </article>
+        <article>
+          <span>Источники данных</span>
+          <strong>MOEX ISS / Stooq</strong>
+        </article>
+      </section>
+
       <div class="demo-account__filters">
         <select v-model="filterCurrency" class="demo-account__select">
           <option value="all">Валюта</option>
@@ -425,10 +485,15 @@ onMounted(() => {
       <div v-if="selectedInstrumentDetails" class="demo-account__instrument-page">
         <button type="button" class="demo-account__back-button" @click="closeInstrument">Назад к каталогу</button>
         <div class="demo-account__instrument-hero">
-          <div>
-            <span>{{ selectedInstrumentDetails.instrument.exchange }} · {{ selectedInstrumentDetails.instrument.asset_type }}</span>
-            <h2>{{ selectedInstrumentDetails.instrument.name }}</h2>
-            <p>{{ selectedInstrumentDetails.instrument.symbol }} · валюта инструмента {{ selectedInstrumentDetails.instrument.currency }}</p>
+          <div class="demo-account__instrument-title">
+            <span class="demo-account__instrument-logo demo-account__instrument-logo--large" :class="instrumentTone(selectedInstrumentDetails.instrument)">
+              {{ instrumentInitials(selectedInstrumentDetails.instrument) }}
+            </span>
+            <div>
+              <span>{{ selectedInstrumentDetails.instrument.exchange }} · {{ selectedInstrumentDetails.instrument.asset_type }}</span>
+              <h2>{{ selectedInstrumentDetails.instrument.name }}</h2>
+              <p>{{ selectedInstrumentDetails.instrument.symbol }} · валюта инструмента {{ selectedInstrumentDetails.instrument.currency }}</p>
+            </div>
           </div>
           <div>
             <strong>
@@ -510,7 +575,11 @@ onMounted(() => {
           <span>Название</span>
           <span>Цена</span>
           <span>За день</span>
-          <span>Валюта</span>
+          <span>Биржа</span>
+        </div>
+        <div v-if="catalogInstruments.length === 0" class="demo-account__empty-state">
+          <strong>Инструменты не найдены</strong>
+          <span>Попробуйте изменить поиск, валюту, страну или биржу.</span>
         </div>
         <article
           v-for="instrument in catalogInstruments"
@@ -521,18 +590,29 @@ onMounted(() => {
           @click="openInstrument(instrument)"
           @keydown.enter="openInstrument(instrument)"
         >
-          <div>
-            <strong>{{ instrument.name }}</strong>
-            <span>{{ instrument.symbol }} · {{ instrument.exchange }}</span>
+          <div class="demo-account__instrument-name">
+            <span class="demo-account__instrument-logo" :class="instrumentTone(instrument)">
+              {{ instrumentInitials(instrument) }}
+            </span>
+            <div>
+              <strong>{{ instrument.name }}</strong>
+              <span>{{ instrument.symbol }}</span>
+            </div>
           </div>
-          <div>
-            <strong>{{ instrument.demo_price_cache ? formatMoney(instrument.demo_price_cache.price, instrument.demo_price_cache.currency) : 'Нет цены' }}</strong>
-            <span>1 лот = 1 шт.</span>
+          <div class="demo-account__price-cell" :class="{ 'demo-account__price-cell--empty': !instrument.demo_price_cache }">
+            <strong>{{ priceText(instrument) }}</strong>
+            <span>{{ quoteAge(instrument) }}</span>
           </div>
-          <b :class="{ 'demo-account__positive': Number(instrument.demo_price_cache?.change_percent ?? 0) >= 0 }">
-            {{ formatPercent(instrument.demo_price_cache?.change_percent ?? null) }}
-          </b>
-          <span>{{ instrument.currency }}</span>
+          <div class="demo-account__change-cell">
+            <b :class="{ 'demo-account__positive': Number(instrument.demo_price_cache?.change_percent ?? 0) >= 0 }">
+              {{ formatPercent(instrument.demo_price_cache?.change_percent ?? null) }}
+            </b>
+            <span>{{ changeAbsText(instrument) }}</span>
+          </div>
+          <div class="demo-account__exchange-cell">
+            <strong>{{ instrument.exchange }}</strong>
+            <span>{{ instrumentCountry(instrument) }} · {{ instrument.currency }}</span>
+          </div>
         </article>
       </div>
     </section>
@@ -884,6 +964,26 @@ onMounted(() => {
   align-items: center;
 }
 
+.demo-account__catalog-status {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.demo-account__catalog-status article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  background: hsl(var(--card));
+  padding: 14px 16px;
+}
+
+.demo-account__catalog-status span {
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+
 .demo-account__table {
   overflow: hidden;
 }
@@ -891,8 +991,8 @@ onMounted(() => {
 .demo-account__table-head,
 .demo-account__table-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1.5fr) minmax(160px, 0.8fr) minmax(120px, 0.6fr) 90px;
-  gap: 16px;
+  grid-template-columns: minmax(300px, 1.7fr) minmax(180px, 0.85fr) minmax(140px, 0.7fr) minmax(150px, 0.75fr);
+  gap: 20px;
   align-items: center;
   padding: 16px 24px;
 }
@@ -912,8 +1012,101 @@ onMounted(() => {
   background: hsl(var(--muted) / 0.42);
 }
 
+.demo-account__empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 36px 20px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+
+.demo-account__empty-state strong {
+  color: hsl(var(--foreground));
+}
+
 .demo-account__table-row:last-child {
   border-bottom: 0;
+}
+
+.demo-account__instrument-name {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.demo-account__instrument-name div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.demo-account__instrument-name strong,
+.demo-account__instrument-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-account__instrument-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: white;
+  background: hsl(211 88% 52%);
+}
+
+.demo-account__instrument-logo--large {
+  width: 64px;
+  height: 64px;
+  font-size: 18px;
+}
+
+.demo-account__logo--ru {
+  background: linear-gradient(135deg, hsl(145 72% 38%), hsl(199 82% 44%));
+}
+
+.demo-account__logo--us {
+  background: linear-gradient(135deg, hsl(224 83% 54%), hsl(258 74% 58%));
+}
+
+.demo-account__logo--fx {
+  background: linear-gradient(135deg, hsl(42 95% 50%), hsl(24 89% 56%));
+}
+
+.demo-account__logo--fund {
+  background: linear-gradient(135deg, hsl(174 72% 35%), hsl(199 84% 48%));
+}
+
+.demo-account__price-cell,
+.demo-account__change-cell,
+.demo-account__exchange-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.demo-account__price-cell strong,
+.demo-account__price-cell span,
+.demo-account__change-cell b,
+.demo-account__change-cell span,
+.demo-account__exchange-cell strong,
+.demo-account__exchange-cell span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-account__price-cell--empty strong {
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
 }
 
 .demo-account__positive {
@@ -949,6 +1142,13 @@ onMounted(() => {
   justify-content: space-between;
   gap: 24px;
   padding: 24px;
+}
+
+.demo-account__instrument-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
 }
 
 .demo-account__instrument-hero h2 {
@@ -1058,6 +1258,15 @@ onMounted(() => {
 
   .demo-account__table-row {
     grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .demo-account__price-cell,
+  .demo-account__change-cell,
+  .demo-account__exchange-cell {
+    grid-template-columns: minmax(110px, auto) minmax(0, 1fr);
+    align-items: baseline;
   }
 }
 
