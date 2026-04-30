@@ -225,12 +225,16 @@ function formatPercent(value: string | null) {
 
 function formatDate(value: string | null) {
   if (!value) return 'пока не задано'
+  const normalized = value.includes(' ') && !value.includes('T') ? value.replace(' ', 'T') : value
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return 'дата уточняется'
+
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function quantityFor(instrument: DemoInstrument) {
