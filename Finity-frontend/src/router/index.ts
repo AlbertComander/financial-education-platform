@@ -101,6 +101,11 @@ const router = createRouter({
       component: DemoAccountView,
       meta: { requiresAuth: true },
     },
+    {
+      path: '/tools/demo-account',
+      redirect: '/demo-account',
+      meta: { requiresAuth: true },
+    },
     ...interactiveToolLinks
       .filter((tool) => tool.id !== 'overview')
       .map((tool) => ({

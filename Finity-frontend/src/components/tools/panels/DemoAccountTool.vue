@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useDemoAccountStore } from '@/stores/demo-account'
-import type { DemoInstrument, DemoPosition } from '@/types/demo-account'
+import type { DemoInstrument, DemoInstrumentDetails, DemoPosition } from '@/types/demo-account'
 
 type DisplayCurrency = 'RUB' | 'USD' | 'EUR'
 type AccountTab = 'overview' | 'catalog' | 'analytics' | 'events'
@@ -28,6 +28,7 @@ const exchangeAmount = ref(10000)
 const buyQuantities = reactive<Record<string, number>>({})
 const sellQuantities = reactive<Record<string, number>>({})
 const selectedCatalogInstrumentId = ref<string | null>(null)
+const selectedInstrumentFallback = ref<DemoInstrumentDetails | null>(null)
 
 const currencies = ['RUB', 'USD', 'EUR', 'CNY']
 const tabs: Array<{ id: AccountTab; label: string }> = [
@@ -131,7 +132,7 @@ const events = computed(() => [
     currency: transaction.currency,
   })),
 ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()))
-const selectedInstrumentDetails = computed(() => store.instrumentDetails)
+const selectedInstrumentDetails = computed(() => store.instrumentDetails ?? selectedInstrumentFallback.value)
 const chartPolyline = computed(() => {
   const candles = selectedInstrumentDetails.value?.candles ?? []
   if (candles.length === 0) return ''
@@ -274,11 +275,21 @@ async function sellPosition(position: DemoPosition) {
 
 async function openInstrument(instrument: DemoInstrument) {
   selectedCatalogInstrumentId.value = instrument.id
-  await store.fetchInstrumentDetails(instrument.id)
+  selectedInstrumentFallback.value = {
+    instrument,
+    candles: [],
+    stats: {
+      periodChangePercent: null,
+      high: null,
+      low: null,
+    },
+  }
+  void store.fetchInstrumentDetails(instrument.id)
 }
 
 function closeInstrument() {
   selectedCatalogInstrumentId.value = null
+  selectedInstrumentFallback.value = null
   store.clearInstrumentDetails()
 }
 
