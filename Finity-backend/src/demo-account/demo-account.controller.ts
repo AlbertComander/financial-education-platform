@@ -13,6 +13,7 @@ import type { Request } from 'express';
 import { DemoAccountService } from './demo-account.service';
 import { CreateDemoAccountDto } from './dto/create-demo-account.dto';
 import { DepositDemoCashDto } from './dto/deposit-demo-cash.dto';
+import { PlaceDemoTradeDto } from './dto/place-demo-trade.dto';
 import { UpsertIncomeRuleDto } from './dto/upsert-income-rule.dto';
 
 @Controller('demo-account')
@@ -44,6 +45,11 @@ export class DemoAccountController {
   @Post('income-rules')
   createIncomeRule(@Req() req: Request, @Body() dto: UpsertIncomeRuleDto) {
     return this.demoAccount.createIncomeRule(this.getUserId(req), dto);
+  }
+
+  @Post('trades')
+  placeTrade(@Req() req: Request, @Body() dto: PlaceDemoTradeDto) {
+    return this.demoAccount.placeTrade(this.getUserId(req), dto);
   }
 
   @Get('instruments')

@@ -7,6 +7,8 @@ import type {
   DemoCashTransaction,
   DemoIncomeRule,
   DemoInstrument,
+  DemoPosition,
+  DemoTrade,
 } from '@/types/demo-account'
 
 export const useDemoAccountStore = defineStore('demo-account', () => {
@@ -19,6 +21,8 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
   const instruments = computed<DemoInstrument[]>(() => overview.value?.instruments ?? [])
   const transactions = computed<DemoCashTransaction[]>(() => overview.value?.transactions ?? [])
   const incomeRules = computed<DemoIncomeRule[]>(() => overview.value?.incomeRules ?? [])
+  const positions = computed<DemoPosition[]>(() => overview.value?.positions ?? [])
+  const trades = computed<DemoTrade[]>(() => overview.value?.trades ?? [])
   const summary = computed(() => overview.value?.summary ?? null)
 
   function getToken() {
@@ -90,13 +94,33 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
     isMutating.value = true
     error.value = null
     try {
-      const updated = await httpRequest<DemoInstrument[]>('/demo-account/instruments/quotes/refresh', {
+      await httpRequest<DemoInstrument[]>('/demo-account/instruments/quotes/refresh', {
         method: 'POST',
         accessToken,
       })
-      if (overview.value) overview.value.instruments = updated
+      await fetchOverview()
     } catch (caught) {
       error.value = caught instanceof Error ? caught.message : 'Не удалось обновить котировки'
+    } finally {
+      isMutating.value = false
+    }
+  }
+
+  async function placeTrade(side: 'buy' | 'sell', instrumentId: number, quantity: number) {
+    const accessToken = getToken()
+    if (!accessToken) return
+
+    isMutating.value = true
+    error.value = null
+    try {
+      await httpRequest('/demo-account/trades', {
+        method: 'POST',
+        accessToken,
+        body: { side, instrumentId, quantity, commissionRub: 0 },
+      })
+      await fetchOverview()
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : 'Не удалось выполнить сделку'
     } finally {
       isMutating.value = false
     }
@@ -108,6 +132,8 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
     instruments,
     transactions,
     incomeRules,
+    positions,
+    trades,
     summary,
     isLoading,
     isMutating,
@@ -116,5 +142,6 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
     depositCash,
     createIncomeRule,
     refreshQuotes,
+    placeTrade,
   }
 })

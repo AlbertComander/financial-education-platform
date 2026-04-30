@@ -58,11 +58,42 @@ export type DemoInstrument = {
   demo_price_cache: DemoPriceCache | null
 }
 
+export type DemoPosition = {
+  account_id: string
+  instrument_id: string
+  quantity: string
+  avg_price: string
+  created_at: string
+  updated_at: string
+  demo_instruments: DemoInstrument
+  marketPrice: string
+  marketValueRub: string
+  costBasisRub: string
+  unrealizedPnlRub: string
+  unrealizedPnlPercent: string
+}
+
+export type DemoTrade = {
+  id: string
+  account_id: string
+  instrument_id: string
+  side: 'buy' | 'sell'
+  quantity: string
+  price: string
+  currency: string
+  commission: string
+  executed_at: string
+  created_at: string
+  demo_instruments: DemoInstrument
+}
+
 export type DemoAccountOverview = {
   account: DemoAccount
   transactions: DemoCashTransaction[]
   incomeRules: DemoIncomeRule[]
   instruments: DemoInstrument[]
+  positions: DemoPosition[]
+  trades: DemoTrade[]
   summary: {
     cashBalance: string
     positionsValue: string
