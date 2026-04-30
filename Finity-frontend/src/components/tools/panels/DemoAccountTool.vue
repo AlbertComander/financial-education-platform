@@ -223,9 +223,10 @@ function formatPercent(value: string | null) {
   return `${amount >= 0 ? '+' : ''}${amount.toFixed(2)}%`
 }
 
-function formatDate(value: string | null) {
+function formatDate(value: string | number | Date | null | undefined) {
   if (!value) return 'пока не задано'
-  const normalized = value.includes(' ') && !value.includes('T') ? value.replace(' ', 'T') : value
+  const rawValue = value instanceof Date ? value.toISOString() : String(value)
+  const normalized = rawValue.includes(' ') && !rawValue.includes('T') ? rawValue.replace(' ', 'T') : rawValue
   const date = new Date(normalized)
   if (Number.isNaN(date.getTime())) return 'дата уточняется'
 
