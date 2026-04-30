@@ -8,6 +8,7 @@ import EmergencyFundTool from '@/components/tools/panels/EmergencyFundTool.vue'
 import CreditCalculatorTool from '@/components/tools/panels/CreditCalculatorTool.vue'
 import SavingsPlannerTool from '@/components/tools/panels/SavingsPlannerTool.vue'
 import ScenarioComparisonTool from '@/components/tools/panels/ScenarioComparisonTool.vue'
+import DemoAccountTool from '@/components/tools/panels/DemoAccountTool.vue'
 import type { InteractiveToolId } from '@/lib/tool-navigation'
 
 const route = useRoute()
@@ -20,6 +21,7 @@ const panelMap: Record<InteractiveToolId, unknown> = {
   'credit-calculator': CreditCalculatorTool,
   'savings-planner': SavingsPlannerTool,
   'scenario-comparison': ScenarioComparisonTool,
+  'demo-account': DemoAccountTool,
 }
 
 const activeToolId = computed(() => {

@@ -55,7 +55,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowRightLeft, Calculator, PieChart, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-vue-next'
+import { ArrowRightLeft, Calculator, PieChart, ShieldCheck, Sparkles, Target, Wallet, WalletCards } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import ToolPageShell from '@/components/tools/ToolPageShell.vue'
 import ToolMetricCard from '@/components/tools/ToolMetricCard.vue'
@@ -71,6 +71,7 @@ const iconMap = {
   calculator: Calculator,
   target: Target,
   split: ArrowRightLeft,
+  'wallet-cards': WalletCards,
 } as const
 
 function iconComponent(iconKey: keyof typeof iconMap) {
@@ -129,6 +130,10 @@ function iconComponent(iconKey: keyof typeof iconMap) {
 
 .tools-overview__card--indigo:hover {
   border-color: hsl(244 75% 74%);
+}
+
+.tools-overview__card--market:hover {
+  border-color: hsl(164 48% 52%);
 }
 
 .tools-overview__card-head {

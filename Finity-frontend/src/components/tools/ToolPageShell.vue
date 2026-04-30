@@ -24,7 +24,7 @@ withDefaults(
     eyebrow: string
     title: string
     description: string
-    theme?: 'gold' | 'ocean' | 'mint' | 'rose' | 'indigo' | 'teal' | 'sunset'
+    theme?: 'gold' | 'ocean' | 'mint' | 'rose' | 'indigo' | 'teal' | 'sunset' | 'market'
   }>(),
   {
     theme: 'gold',
@@ -81,6 +81,12 @@ withDefaults(
   --tool-accent-start: hsl(35 96% 59%);
   --tool-accent-end: hsl(334 82% 63%);
   --tool-accent-cloud: hsl(213 88% 58% / 0.15);
+}
+
+.tool-page-shell--market {
+  --tool-accent-start: hsl(205 58% 40%);
+  --tool-accent-end: hsl(164 48% 36%);
+  --tool-accent-cloud: hsl(42 92% 55% / 0.13);
 }
 
 .tool-page-shell__hero {
