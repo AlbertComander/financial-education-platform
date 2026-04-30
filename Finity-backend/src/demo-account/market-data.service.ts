@@ -30,6 +30,15 @@ export type MarketQuote = {
   raw: Record<string, unknown>;
 };
 
+export type MarketCandle = {
+  begin: Date;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volume: number | null;
+};
+
 export const DEMO_INSTRUMENTS: DemoInstrumentSeed[] = [
   {
     code: 'MOEX:SBER',
@@ -197,6 +206,14 @@ export class MarketDataService {
     return [...moexQuotes, ...stooqQuotes];
   }
 
+  async getCandles(instrument: QuoteRequest, days = 90): Promise<MarketCandle[]> {
+    if (instrument.provider === 'moex') {
+      return this.getMoexCandles(instrument, days);
+    }
+
+    return this.getStooqCandles(instrument, days);
+  }
+
   private async getMoexQuotes(instruments: QuoteRequest[]): Promise<MarketQuote[]> {
     const currencySymbols = new Set(['USD000UTSTOM', 'EUR_RUB__TOM', 'CNYRUB_TOM']);
     const shares = instruments.filter((instrument) => !currencySymbols.has(instrument.provider_symbol));
@@ -210,6 +227,41 @@ export class MarketDataService {
   }
 
   private async getMoexMarketQuotes(
+    instruments: QuoteRequest[],
+    engine: 'stock' | 'currency',
+    market: 'shares' | 'selt',
+  ): Promise<MarketQuote[]> {
+    if (instruments.length === 0) return [];
+
+    const board = market === 'shares' ? 'TQBR' : 'CETS';
+    const quoteLists = await Promise.all(
+      instruments.map(async (instrument) => {
+        const url = new URL(
+          `https://iss.moex.com/iss/engines/${engine}/markets/${market}/boards/${board}/securities/${instrument.provider_symbol}.json`,
+        );
+        url.searchParams.set('iss.meta', 'off');
+        url.searchParams.set('iss.only', 'securities,marketdata');
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`MOEX ISS failed with ${response.status}`);
+        }
+
+        const data = (await response.json()) as {
+          securities?: { columns: string[]; data: unknown[][] };
+          marketdata?: { columns: string[]; data: unknown[][] };
+        };
+        const security = this.tableRows(data.securities?.columns ?? [], data.securities?.data ?? [])[0] ?? {};
+        const marketdataRow = this.tableRows(data.marketdata?.columns ?? [], data.marketdata?.data ?? [])[0] ?? {};
+        const quote = this.toMoexQuote({ ...security, ...marketdataRow }, [instrument]);
+        return quote ? [quote] : [];
+      }),
+    );
+
+    return quoteLists.flat();
+  }
+
+  private async getMoexMarketQuotesLegacy(
     instruments: QuoteRequest[],
     engine: 'stock' | 'currency',
     market: 'shares' | 'selt',
@@ -239,7 +291,13 @@ export class MarketDataService {
   private toMoexQuote(row: Record<string, unknown>, instruments: QuoteRequest[]): MarketQuote | null {
     const secid = String(row.SECID ?? '');
     const instrument = instruments.find((item) => item.provider_symbol === secid);
-    const price = Number(row.LAST ?? row.MARKETPRICE ?? row.LCURRENTPRICE);
+    const price = Number(
+      row.LAST ??
+        row.MARKETPRICE ??
+        row.MARKETPRICETODAY ??
+        row.LCURRENTPRICE ??
+        row.PREVPRICE,
+    );
     if (!instrument || !Number.isFinite(price) || price <= 0) return null;
 
     const changeAbs = Number(row.CHANGE);
@@ -254,6 +312,88 @@ export class MarketDataService {
       asOf: new Date(),
       provider: 'moex',
       raw: row,
+    };
+  }
+
+  private async getMoexCandles(instrument: QuoteRequest, days: number): Promise<MarketCandle[]> {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(to.getDate() - days);
+    const currencySymbols = new Set(['USD000UTSTOM', 'EUR_RUB__TOM', 'CNYRUB_TOM']);
+    const isCurrency = currencySymbols.has(instrument.provider_symbol);
+    const engine = isCurrency ? 'currency' : 'stock';
+    const market = isCurrency ? 'selt' : 'shares';
+    const board = isCurrency ? 'CETS' : 'TQBR';
+    const url = new URL(
+      `https://iss.moex.com/iss/engines/${engine}/markets/${market}/boards/${board}/securities/${instrument.provider_symbol}/candles.json`,
+    );
+    url.searchParams.set('iss.meta', 'off');
+    url.searchParams.set('interval', '24');
+    url.searchParams.set('from', this.formatDateParam(from));
+    url.searchParams.set('till', this.formatDateParam(to));
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`MOEX candles failed with ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      candles?: { columns: string[]; data: unknown[][] };
+    };
+    return this.tableRows(data.candles?.columns ?? [], data.candles?.data ?? [])
+      .map((row) => this.toCandle(row))
+      .filter((candle): candle is MarketCandle => candle !== null);
+  }
+
+  private async getStooqCandles(instrument: QuoteRequest, days: number): Promise<MarketCandle[]> {
+    const url = new URL('https://stooq.com/q/d/l/');
+    url.searchParams.set('s', instrument.provider_symbol);
+    url.searchParams.set('i', 'd');
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Stooq history failed with ${response.status}`);
+    }
+
+    const csv = await response.text();
+    const [headerLine, ...rows] = csv.trim().split(/\r?\n/);
+    const headers = headerLine.split(',').map((value) => value.trim());
+
+    return rows
+      .slice(-days)
+      .map((row) => this.parseCsvRow(headers, row))
+      .map((row) =>
+        this.toCandle({
+          begin: row.Date,
+          open: row.Open,
+          close: row.Close,
+          high: row.High,
+          low: row.Low,
+          volume: row.Volume,
+        }),
+      )
+      .filter((candle): candle is MarketCandle => candle !== null);
+  }
+
+  private toCandle(row: Record<string, unknown>): MarketCandle | null {
+    const open = Number(row.open ?? row.OPEN);
+    const close = Number(row.close ?? row.CLOSE);
+    const high = Number(row.high ?? row.HIGH);
+    const low = Number(row.low ?? row.LOW);
+    const volume = Number(row.volume ?? row.VOLUME);
+    const begin = new Date(String(row.begin ?? row.BEGIN));
+
+    if (![open, close, high, low].every(Number.isFinite) || Number.isNaN(begin.getTime())) {
+      return null;
+    }
+
+    return {
+      begin,
+      open,
+      close,
+      high,
+      low,
+      volume: Number.isFinite(volume) ? volume : null,
     };
   }
 
@@ -314,5 +454,9 @@ export class MarketDataService {
   private parseCsvRow(headers: string[], row: string): Record<string, string> {
     const values = row.split(',').map((value) => value.trim());
     return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));
+  }
+
+  private formatDateParam(value: Date): string {
+    return value.toISOString().slice(0, 10);
   }
 }

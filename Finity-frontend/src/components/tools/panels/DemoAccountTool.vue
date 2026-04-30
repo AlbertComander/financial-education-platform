@@ -27,6 +27,7 @@ const exchangeTo = ref('USD')
 const exchangeAmount = ref(10000)
 const buyQuantities = reactive<Record<string, number>>({})
 const sellQuantities = reactive<Record<string, number>>({})
+const selectedCatalogInstrumentId = ref<string | null>(null)
 
 const currencies = ['RUB', 'USD', 'EUR', 'CNY']
 const tabs: Array<{ id: AccountTab; label: string }> = [
@@ -130,6 +131,22 @@ const events = computed(() => [
     currency: transaction.currency,
   })),
 ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()))
+const selectedInstrumentDetails = computed(() => store.instrumentDetails)
+const chartPolyline = computed(() => {
+  const candles = selectedInstrumentDetails.value?.candles ?? []
+  if (candles.length === 0) return ''
+  const closes = candles.map((candle) => candle.close)
+  const min = Math.min(...closes)
+  const max = Math.max(...closes)
+  const range = max - min || 1
+  return candles
+    .map((candle, index) => {
+      const x = (index / Math.max(candles.length - 1, 1)) * 100
+      const y = 100 - ((candle.close - min) / range) * 86 - 7
+      return `${x.toFixed(2)},${y.toFixed(2)}`
+    })
+    .join(' ')
+})
 
 function findRate(symbol: string) {
   const instrument = store.instruments.find((item) => item.symbol === symbol)
@@ -215,6 +232,16 @@ async function buyInstrument(instrument: DemoInstrument) {
 
 async function sellPosition(position: DemoPosition) {
   await store.placeTrade('sell', Number(position.instrument_id), sellQuantityFor(position))
+}
+
+async function openInstrument(instrument: DemoInstrument) {
+  selectedCatalogInstrumentId.value = instrument.id
+  await store.fetchInstrumentDetails(instrument.id)
+}
+
+function closeInstrument() {
+  selectedCatalogInstrumentId.value = null
+  store.clearInstrumentDetails()
 }
 
 onMounted(() => {
@@ -395,15 +422,105 @@ onMounted(() => {
         <Button variant="outline" :disabled="store.isMutating" @click="refreshQuotes">Обновить котировки</Button>
       </div>
 
-      <div class="demo-account__table">
+      <div v-if="selectedInstrumentDetails" class="demo-account__instrument-page">
+        <button type="button" class="demo-account__back-button" @click="closeInstrument">Назад к каталогу</button>
+        <div class="demo-account__instrument-hero">
+          <div>
+            <span>{{ selectedInstrumentDetails.instrument.exchange }} · {{ selectedInstrumentDetails.instrument.asset_type }}</span>
+            <h2>{{ selectedInstrumentDetails.instrument.name }}</h2>
+            <p>{{ selectedInstrumentDetails.instrument.symbol }} · валюта инструмента {{ selectedInstrumentDetails.instrument.currency }}</p>
+          </div>
+          <div>
+            <strong>
+              {{
+                selectedInstrumentDetails.instrument.demo_price_cache
+                  ? formatMoney(
+                      selectedInstrumentDetails.instrument.demo_price_cache.price,
+                      selectedInstrumentDetails.instrument.demo_price_cache.currency,
+                    )
+                  : 'Нет цены'
+              }}
+            </strong>
+            <span
+              :class="{
+                'demo-account__positive':
+                  Number(selectedInstrumentDetails.instrument.demo_price_cache?.change_percent ?? 0) >= 0,
+              }"
+            >
+              {{ formatPercent(selectedInstrumentDetails.instrument.demo_price_cache?.change_percent ?? null) }}
+            </span>
+          </div>
+        </div>
+
+        <div class="demo-account__details-grid">
+          <article class="demo-account__chart-panel">
+            <div class="demo-account__section-title">
+              <h2>График цены</h2>
+              <span>Последние 120 торговых дней</span>
+            </div>
+            <svg v-if="chartPolyline" class="demo-account__price-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <polyline :points="chartPolyline" fill="none" stroke="currentColor" stroke-width="2.8" vector-effect="non-scaling-stroke" />
+            </svg>
+            <p v-else class="demo-account__muted">История появится после обновления котировок.</p>
+          </article>
+
+          <article class="demo-account__order-panel">
+            <h2>Покупка</h2>
+            <p>
+              Покупка идет только за {{ selectedInstrumentDetails.instrument.currency }}.
+              Если валюты не хватает, сначала купите ее в обменнике.
+            </p>
+            <Label :for="`buy-detail-${selectedInstrumentDetails.instrument.id}`">Количество</Label>
+            <Input
+              :id="`buy-detail-${selectedInstrumentDetails.instrument.id}`"
+              v-model.number="buyQuantities[selectedInstrumentDetails.instrument.id]"
+              type="number"
+              min="0.00000001"
+              step="1"
+            />
+            <Button
+              :disabled="store.isMutating || !selectedInstrumentDetails.instrument.demo_price_cache"
+              @click="buyInstrument(selectedInstrumentDetails.instrument)"
+            >
+              Купить
+            </Button>
+          </article>
+        </div>
+
+        <div class="demo-account__stats-grid">
+          <article>
+            <span>Максимум периода</span>
+            <strong>{{ selectedInstrumentDetails.stats.high ? formatMoney(selectedInstrumentDetails.stats.high, selectedInstrumentDetails.instrument.currency) : '—' }}</strong>
+          </article>
+          <article>
+            <span>Минимум периода</span>
+            <strong>{{ selectedInstrumentDetails.stats.low ? formatMoney(selectedInstrumentDetails.stats.low, selectedInstrumentDetails.instrument.currency) : '—' }}</strong>
+          </article>
+          <article>
+            <span>За период</span>
+            <strong :class="{ 'demo-account__positive': Number(selectedInstrumentDetails.stats.periodChangePercent ?? 0) >= 0 }">
+              {{ selectedInstrumentDetails.stats.periodChangePercent === null ? '—' : `${selectedInstrumentDetails.stats.periodChangePercent.toFixed(2)}%` }}
+            </strong>
+          </article>
+        </div>
+      </div>
+
+      <div v-else class="demo-account__table">
         <div class="demo-account__table-head">
           <span>Название</span>
           <span>Цена</span>
           <span>За день</span>
           <span>Валюта</span>
-          <span>Действие</span>
         </div>
-        <article v-for="instrument in catalogInstruments" :key="instrument.id" class="demo-account__table-row">
+        <article
+          v-for="instrument in catalogInstruments"
+          :key="instrument.id"
+          class="demo-account__table-row"
+          role="button"
+          tabindex="0"
+          @click="openInstrument(instrument)"
+          @keydown.enter="openInstrument(instrument)"
+        >
           <div>
             <strong>{{ instrument.name }}</strong>
             <span>{{ instrument.symbol }} · {{ instrument.exchange }}</span>
@@ -416,13 +533,6 @@ onMounted(() => {
             {{ formatPercent(instrument.demo_price_cache?.change_percent ?? null) }}
           </b>
           <span>{{ instrument.currency }}</span>
-          <div class="demo-account__buy-cell" v-if="instrument.asset_type !== 'currency'">
-            <Input v-model.number="buyQuantities[instrument.id]" type="number" min="0.00000001" step="1" />
-            <Button :disabled="store.isMutating || !instrument.demo_price_cache" @click="buyInstrument(instrument)">Купить</Button>
-          </div>
-          <div class="demo-account__buy-cell" v-else>
-            <span>Покупается в обменнике</span>
-          </div>
         </article>
       </div>
     </section>
@@ -781,7 +891,7 @@ onMounted(() => {
 .demo-account__table-head,
 .demo-account__table-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(140px, 0.8fr) minmax(120px, 0.6fr) 90px minmax(190px, 0.8fr);
+  grid-template-columns: minmax(260px, 1.5fr) minmax(160px, 0.8fr) minmax(120px, 0.6fr) 90px;
   gap: 16px;
   align-items: center;
   padding: 16px 24px;
@@ -794,6 +904,12 @@ onMounted(() => {
 
 .demo-account__table-row {
   border-bottom: 1px solid hsl(var(--border));
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.demo-account__table-row:hover {
+  background: hsl(var(--muted) / 0.42);
 }
 
 .demo-account__table-row:last-child {
@@ -802,6 +918,97 @@ onMounted(() => {
 
 .demo-account__positive {
   color: hsl(145 80% 34%) !important;
+}
+
+.demo-account__instrument-page {
+  display: grid;
+  gap: 16px;
+}
+
+.demo-account__back-button {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 0;
+}
+
+.demo-account__instrument-hero,
+.demo-account__chart-panel,
+.demo-account__order-panel,
+.demo-account__stats-grid article {
+  border: 1px solid hsl(var(--border));
+  border-radius: 16px;
+  background: hsl(var(--card));
+  box-shadow: 0 14px 36px hsl(220 30% 20% / 0.06);
+}
+
+.demo-account__instrument-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.demo-account__instrument-hero h2 {
+  margin: 6px 0;
+  font-size: 30px;
+}
+
+.demo-account__instrument-hero p,
+.demo-account__instrument-hero span,
+.demo-account__stats-grid span,
+.demo-account__order-panel p {
+  color: hsl(var(--muted-foreground));
+}
+
+.demo-account__instrument-hero strong {
+  display: block;
+  font-size: 28px;
+  text-align: right;
+}
+
+.demo-account__details-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.7fr);
+  gap: 16px;
+}
+
+.demo-account__chart-panel,
+.demo-account__order-panel {
+  padding: 20px;
+}
+
+.demo-account__price-chart {
+  width: 100%;
+  height: 320px;
+  color: hsl(145 70% 40%);
+  background:
+    linear-gradient(hsl(var(--border)) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px);
+  background-size: 100% 25%, 12.5% 100%;
+  border-radius: 12px;
+  margin-top: 18px;
+  overflow: visible;
+}
+
+.demo-account__order-panel {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.demo-account__stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.demo-account__stats-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
 }
 
 .demo-account__error {
@@ -839,7 +1046,9 @@ onMounted(() => {
   .demo-account__actions,
   .demo-account__overview-grid,
   .demo-account__cash-grid,
-  .demo-account__allocation {
+  .demo-account__allocation,
+  .demo-account__details-grid,
+  .demo-account__stats-grid {
     grid-template-columns: 1fr;
   }
 
@@ -854,9 +1063,14 @@ onMounted(() => {
 
 @media (max-width: 760px) {
   .demo-account__topbar,
-  .demo-account__event-list article {
+  .demo-account__event-list article,
+  .demo-account__instrument-hero {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .demo-account__instrument-hero strong {
+    text-align: left;
   }
 
   .demo-account__inline-form,

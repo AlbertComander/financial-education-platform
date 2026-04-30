@@ -8,6 +8,7 @@ import type {
   DemoCashTransaction,
   DemoIncomeRule,
   DemoInstrument,
+  DemoInstrumentDetails,
   DemoPosition,
   DemoTrade,
 } from '@/types/demo-account'
@@ -16,7 +17,9 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
   const overview = ref<DemoAccountOverview | null>(null)
   const isLoading = ref(false)
   const isMutating = ref(false)
+  const isDetailsLoading = ref(false)
   const error = ref<string | null>(null)
+  const instrumentDetails = ref<DemoInstrumentDetails | null>(null)
 
   const account = computed(() => overview.value?.account ?? null)
   const cashBalances = computed<DemoCashBalance[]>(() => overview.value?.cashBalances ?? [])
@@ -128,6 +131,27 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
     }
   }
 
+  async function fetchInstrumentDetails(instrumentId: string) {
+    const accessToken = getToken()
+    if (!accessToken) return
+
+    isDetailsLoading.value = true
+    error.value = null
+    try {
+      instrumentDetails.value = await httpRequest<DemoInstrumentDetails>(`/demo-account/instruments/${instrumentId}`, {
+        accessToken,
+      })
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : 'Не удалось загрузить данные инструмента'
+    } finally {
+      isDetailsLoading.value = false
+    }
+  }
+
+  function clearInstrumentDetails() {
+    instrumentDetails.value = null
+  }
+
   async function placeTrade(side: 'buy' | 'sell', instrumentId: number, quantity: number) {
     const accessToken = getToken()
     if (!accessToken) return
@@ -158,14 +182,18 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
     positions,
     trades,
     summary,
+    instrumentDetails,
     isLoading,
     isMutating,
+    isDetailsLoading,
     error,
     fetchOverview,
     depositCash,
     createIncomeRule,
     refreshQuotes,
     exchangeCurrency,
+    fetchInstrumentDetails,
+    clearInstrumentDetails,
     placeTrade,
   }
 })

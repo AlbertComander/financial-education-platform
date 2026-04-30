@@ -94,6 +94,25 @@ export type DemoTrade = {
   demo_instruments: DemoInstrument
 }
 
+export type DemoCandle = {
+  begin: string
+  open: number
+  close: number
+  high: number
+  low: number
+  volume: number | null
+}
+
+export type DemoInstrumentDetails = {
+  instrument: DemoInstrument
+  candles: DemoCandle[]
+  stats: {
+    periodChangePercent: number | null
+    high: number | null
+    low: number | null
+  }
+}
+
 export type DemoAccountOverview = {
   account: DemoAccount
   cashBalances: DemoCashBalance[]

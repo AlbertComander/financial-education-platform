@@ -374,6 +374,41 @@ export class DemoAccountService {
     });
   }
 
+  async getInstrumentDetails(instrumentId: string) {
+    const instrument = await this.prisma.demo_instruments.findUnique({
+      where: { id: BigInt(instrumentId) },
+      include: { demo_price_cache: true },
+    });
+
+    if (!instrument) {
+      throw new BadRequestException('Instrument is not available');
+    }
+
+    const candles = await this.marketData.getCandles(
+      {
+        provider: instrument.provider,
+        provider_symbol: instrument.provider_symbol,
+        currency: instrument.currency,
+      },
+      120,
+    );
+
+    const first = candles[0]?.close ?? null;
+    const last = candles.at(-1)?.close ?? null;
+    const periodChangePercent =
+      first && last ? ((last - first) / first) * 100 : null;
+
+    return {
+      instrument,
+      candles,
+      stats: {
+        periodChangePercent,
+        high: candles.length ? Math.max(...candles.map((candle) => candle.high)) : null,
+        low: candles.length ? Math.min(...candles.map((candle) => candle.low)) : null,
+      },
+    };
+  }
+
   async refreshQuotes() {
     await this.ensureInstrumentCatalog();
     const instruments = await this.prisma.demo_instruments.findMany({

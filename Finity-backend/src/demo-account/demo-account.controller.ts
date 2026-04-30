@@ -63,6 +63,11 @@ export class DemoAccountController {
     return this.demoAccount.listInstruments();
   }
 
+  @Get('instruments/:instrumentId')
+  getInstrumentDetails(@Param('instrumentId') instrumentId: string) {
+    return this.demoAccount.getInstrumentDetails(instrumentId);
+  }
+
   @Post('instruments/quotes/refresh')
   refreshQuotes() {
     return this.demoAccount.refreshQuotes();
