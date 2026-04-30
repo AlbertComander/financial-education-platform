@@ -17,5 +17,5 @@ export class PlaceDemoTradeDto {
   @IsNumber()
   @Min(0)
   @Max(1000000)
-  commissionRub?: number;
+  commission?: number;
 }

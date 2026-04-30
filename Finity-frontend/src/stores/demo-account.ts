@@ -4,6 +4,7 @@ import { httpRequest } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import type {
   DemoAccountOverview,
+  DemoCashBalance,
   DemoCashTransaction,
   DemoIncomeRule,
   DemoInstrument,
@@ -18,6 +19,7 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
   const error = ref<string | null>(null)
 
   const account = computed(() => overview.value?.account ?? null)
+  const cashBalances = computed<DemoCashBalance[]>(() => overview.value?.cashBalances ?? [])
   const instruments = computed<DemoInstrument[]>(() => overview.value?.instruments ?? [])
   const transactions = computed<DemoCashTransaction[]>(() => overview.value?.transactions ?? [])
   const incomeRules = computed<DemoIncomeRule[]>(() => overview.value?.incomeRules ?? [])
@@ -106,6 +108,26 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
     }
   }
 
+  async function exchangeCurrency(fromCurrency: string, toCurrency: string, fromAmount: number) {
+    const accessToken = getToken()
+    if (!accessToken) return
+
+    isMutating.value = true
+    error.value = null
+    try {
+      await httpRequest('/demo-account/cash/exchange', {
+        method: 'POST',
+        accessToken,
+        body: { fromCurrency, toCurrency, fromAmount },
+      })
+      await fetchOverview()
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : 'Не удалось обменять валюту'
+    } finally {
+      isMutating.value = false
+    }
+  }
+
   async function placeTrade(side: 'buy' | 'sell', instrumentId: number, quantity: number) {
     const accessToken = getToken()
     if (!accessToken) return
@@ -116,7 +138,7 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
       await httpRequest('/demo-account/trades', {
         method: 'POST',
         accessToken,
-        body: { side, instrumentId, quantity, commissionRub: 0 },
+        body: { side, instrumentId, quantity, commission: 0 },
       })
       await fetchOverview()
     } catch (caught) {
@@ -129,6 +151,7 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
   return {
     overview,
     account,
+    cashBalances,
     instruments,
     transactions,
     incomeRules,
@@ -142,6 +165,7 @@ export const useDemoAccountStore = defineStore('demo-account', () => {
     depositCash,
     createIncomeRule,
     refreshQuotes,
+    exchangeCurrency,
     placeTrade,
   }
 })

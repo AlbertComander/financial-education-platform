@@ -7,12 +7,16 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDemoAccountDto } from './dto/create-demo-account.dto';
 import { DepositDemoCashDto } from './dto/deposit-demo-cash.dto';
+import { ExchangeDemoCurrencyDto } from './dto/exchange-demo-currency.dto';
 import { PlaceDemoTradeDto } from './dto/place-demo-trade.dto';
 import { UpsertIncomeRuleDto } from './dto/upsert-income-rule.dto';
 import {
   DEMO_INSTRUMENTS,
   MarketDataService,
 } from './market-data.service';
+
+const SUPPORTED_CURRENCIES = ['RUB', 'USD', 'EUR', 'CNY'] as const;
+type DemoCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 
 @Injectable()
 export class DemoAccountService {
@@ -27,34 +31,41 @@ export class DemoAccountService {
     const freshAccount = await this.prisma.demo_accounts.findUniqueOrThrow({
       where: { id: account.id },
     });
-    const [transactions, incomeRules, instruments, positions, trades] =
+    await this.ensureCashBalances(freshAccount.id);
+
+    const [transactions, incomeRules, instruments, positions, trades, cashBalances] =
       await Promise.all([
-      this.prisma.demo_cash_transactions.findMany({
-        where: { account_id: freshAccount.id },
-        orderBy: { effective_at: 'desc' },
-        take: 8,
-      }),
-      this.prisma.demo_income_rules.findMany({
-        where: { account_id: freshAccount.id },
-        orderBy: { created_at: 'desc' },
-      }),
-      this.listInstruments(),
-      this.prisma.demo_positions.findMany({
-        where: { account_id: freshAccount.id },
-        include: {
-          demo_instruments: {
-            include: { demo_price_cache: true },
+        this.prisma.demo_cash_transactions.findMany({
+          where: { account_id: freshAccount.id },
+          orderBy: { effective_at: 'desc' },
+          take: 10,
+        }),
+        this.prisma.demo_income_rules.findMany({
+          where: { account_id: freshAccount.id },
+          orderBy: { created_at: 'desc' },
+        }),
+        this.listInstruments(),
+        this.prisma.demo_positions.findMany({
+          where: { account_id: freshAccount.id },
+          include: {
+            demo_instruments: {
+              include: { demo_price_cache: true },
+            },
           },
-        },
-        orderBy: { updated_at: 'desc' },
-      }),
-      this.prisma.demo_trades.findMany({
-        where: { account_id: freshAccount.id },
-        include: { demo_instruments: true },
-        orderBy: { executed_at: 'desc' },
-        take: 8,
-      }),
-    ]);
+          orderBy: { updated_at: 'desc' },
+        }),
+        this.prisma.demo_trades.findMany({
+          where: { account_id: freshAccount.id },
+          include: { demo_instruments: true },
+          orderBy: { executed_at: 'desc' },
+          take: 10,
+        }),
+        this.prisma.demo_cash_balances.findMany({
+          where: { account_id: freshAccount.id },
+          orderBy: { currency: 'asc' },
+        }),
+      ]);
+
     const rates = this.extractRates(instruments);
     const positionViews = positions.map((position) =>
       this.toPositionView(position, rates),
@@ -67,37 +78,43 @@ export class DemoAccountService {
       (sum, position) => sum.plus(position.costBasisRub),
       new Prisma.Decimal(0),
     );
+    const cashValueRub = cashBalances.reduce(
+      (sum, balance) =>
+        sum.plus(this.convertToRub(balance.amount, balance.currency, rates)),
+      new Prisma.Decimal(0),
+    );
 
     return {
       account: freshAccount,
+      cashBalances,
       transactions,
       incomeRules,
       instruments,
       positions: positionViews,
       trades,
       summary: {
-        cashBalance: freshAccount.cash_balance,
+        cashBalance: this.balanceAmount(cashBalances, 'RUB'),
+        cashValueRub,
         positionsValue,
-        totalValue: freshAccount.cash_balance.plus(positionsValue),
+        totalValue: cashValueRub.plus(positionsValue),
         investedValue,
       },
     };
   }
 
   async createOrUpdateAccount(userId: bigint, dto: CreateDemoAccountDto) {
-    const currency = 'RUB';
     const initialCash = new Prisma.Decimal(dto.initialCash ?? 0);
-
     const existing = await this.prisma.demo_accounts.findUnique({
       where: { user_id: userId },
     });
 
     if (existing) {
+      await this.ensureCashBalances(existing.id);
       return this.prisma.demo_accounts.update({
         where: { id: existing.id },
         data: {
           name: dto.name ?? existing.name,
-          currency,
+          currency: 'RUB',
           updated_at: new Date(),
         },
       });
@@ -108,10 +125,12 @@ export class DemoAccountService {
         data: {
           user_id: userId,
           name: dto.name ?? 'Демо-счет',
-          currency,
+          currency: 'RUB',
           cash_balance: initialCash,
         },
       });
+
+      await this.ensureCashBalancesTx(tx, account.id, initialCash);
 
       if (initialCash.greaterThan(0)) {
         await tx.demo_cash_transactions.create({
@@ -119,7 +138,7 @@ export class DemoAccountService {
             account_id: account.id,
             kind: 'manual_deposit',
             amount: initialCash,
-            currency,
+            currency: 'RUB',
             description: 'Стартовый демо-капитал',
           },
         });
@@ -134,10 +153,11 @@ export class DemoAccountService {
     const amount = new Prisma.Decimal(dto.amount);
 
     return this.prisma.$transaction(async (tx) => {
+      const balance = await this.incrementCashBalanceTx(tx, account.id, 'RUB', amount);
       const updated = await tx.demo_accounts.update({
         where: { id: account.id },
         data: {
-          cash_balance: { increment: amount },
+          cash_balance: balance.amount,
           updated_at: new Date(),
         },
       });
@@ -147,22 +167,61 @@ export class DemoAccountService {
           account_id: account.id,
           kind: 'manual_deposit',
           amount,
-          currency: account.currency,
+          currency: 'RUB',
           description: dto.description ?? 'Ручное пополнение демо-счета',
         },
       });
 
-      await tx.demo_portfolio_snapshots.create({
-        data: {
-          account_id: account.id,
-          cash_value: updated.cash_balance,
-          positions_value: new Prisma.Decimal(0),
-          total_value: updated.cash_balance,
-          invested_value: new Prisma.Decimal(0),
-        },
+      await this.createSnapshotTx(tx, account.id, updated.cash_balance);
+      return { account: updated, transaction };
+    });
+  }
+
+  async exchangeCurrency(userId: bigint, dto: ExchangeDemoCurrencyDto) {
+    if (dto.fromCurrency === dto.toCurrency) {
+      throw new BadRequestException('Choose different currencies');
+    }
+
+    const account = await this.ensureAccount(userId);
+    const fromCurrency = dto.fromCurrency as DemoCurrency;
+    const toCurrency = dto.toCurrency as DemoCurrency;
+    const fromAmount = new Prisma.Decimal(dto.fromAmount);
+    const instruments = await this.listInstruments();
+    const rates = this.extractRates(instruments);
+    const rubValue = this.convertToRub(fromAmount, fromCurrency, rates);
+    const toAmount = this.convertRubTo(rubValue, toCurrency, rates);
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.decrementCashBalanceTx(tx, account.id, fromCurrency, fromAmount);
+      await this.incrementCashBalanceTx(tx, account.id, toCurrency, toAmount);
+
+      await tx.demo_cash_transactions.createMany({
+        data: [
+          {
+            account_id: account.id,
+            kind: 'currency_exchange_out',
+            amount: fromAmount.negated(),
+            currency: fromCurrency,
+            description: `Обмен ${fromCurrency} на ${toCurrency}`,
+          },
+          {
+            account_id: account.id,
+            kind: 'currency_exchange_in',
+            amount: toAmount,
+            currency: toCurrency,
+            description: `Обмен ${fromCurrency} на ${toCurrency}`,
+          },
+        ],
       });
 
-      return { account: updated, transaction };
+      const rubBalance = await this.getBalanceTx(tx, account.id, 'RUB');
+      await tx.demo_accounts.update({
+        where: { id: account.id },
+        data: { cash_balance: rubBalance.amount, updated_at: new Date() },
+      });
+      await this.createSnapshotTx(tx, account.id, rubBalance.amount);
+
+      return { fromCurrency, toCurrency, fromAmount, toAmount };
     });
   }
 
@@ -175,7 +234,7 @@ export class DemoAccountService {
         account_id: account.id,
         title: dto.title,
         amount: new Prisma.Decimal(dto.amount),
-        currency: account.currency,
+        currency: 'RUB',
         day_of_month: dto.dayOfMonth,
         is_active: dto.isActive ?? true,
         next_run_at: nextRunAt,
@@ -190,8 +249,8 @@ export class DemoAccountService {
       include: { demo_price_cache: true },
     });
 
-    if (!instrument || !instrument.is_active) {
-      throw new BadRequestException('Instrument is not available');
+    if (!instrument || !instrument.is_active || instrument.asset_type === 'currency') {
+      throw new BadRequestException('Instrument is not available for trading');
     }
 
     if (!instrument.demo_price_cache) {
@@ -199,21 +258,14 @@ export class DemoAccountService {
     }
 
     const quote = instrument.demo_price_cache;
-    const rates = await this.getRubRates();
+    const tradeCurrency = quote.currency as DemoCurrency;
     const quantity = new Prisma.Decimal(dto.quantity);
     const price = quote.price;
-    const commissionRub = new Prisma.Decimal(dto.commissionRub ?? 0);
-    const grossRub = this.convertToRub(
-      price.mul(quantity),
-      instrument.demo_price_cache.currency,
-      rates,
-    );
-    const cashImpact = grossRub.plus(commissionRub);
+    const commission = new Prisma.Decimal(dto.commission ?? 0);
+    const gross = price.mul(quantity);
+    const cashImpact = gross.plus(commission);
 
     return this.prisma.$transaction(async (tx) => {
-      const currentAccount = await tx.demo_accounts.findUniqueOrThrow({
-        where: { id: account.id },
-      });
       const currentPosition = await tx.demo_positions.findUnique({
         where: {
           account_id_instrument_id: {
@@ -224,10 +276,7 @@ export class DemoAccountService {
       });
 
       if (dto.side === 'buy') {
-        if (currentAccount.cash_balance.lessThan(cashImpact)) {
-          throw new BadRequestException('Not enough demo cash for this trade');
-        }
-
+        await this.decrementCashBalanceTx(tx, account.id, tradeCurrency, cashImpact);
         const oldQuantity = currentPosition?.quantity ?? new Prisma.Decimal(0);
         const oldAvgPrice = currentPosition?.avg_price ?? new Prisma.Decimal(0);
         const newQuantity = oldQuantity.plus(quantity);
@@ -235,14 +284,6 @@ export class DemoAccountService {
           .mul(oldAvgPrice)
           .plus(quantity.mul(price))
           .div(newQuantity);
-
-        await tx.demo_accounts.update({
-          where: { id: account.id },
-          data: {
-            cash_balance: { decrement: cashImpact },
-            updated_at: new Date(),
-          },
-        });
 
         await tx.demo_positions.upsert({
           where: {
@@ -269,13 +310,12 @@ export class DemoAccountService {
         }
 
         const newQuantity = currentPosition.quantity.minus(quantity);
-        await tx.demo_accounts.update({
-          where: { id: account.id },
-          data: {
-            cash_balance: { increment: grossRub.minus(commissionRub) },
-            updated_at: new Date(),
-          },
-        });
+        await this.incrementCashBalanceTx(
+          tx,
+          account.id,
+          tradeCurrency,
+          gross.minus(commission),
+        );
 
         if (newQuantity.equals(0)) {
           await tx.demo_positions.delete({
@@ -309,23 +349,17 @@ export class DemoAccountService {
           side: dto.side,
           quantity,
           price,
-          currency: quote.currency,
-          commission: commissionRub,
+          currency: tradeCurrency,
+          commission,
         },
       });
 
-      const updatedAccount = await tx.demo_accounts.findUniqueOrThrow({
+      const rubBalance = await this.getBalanceTx(tx, account.id, 'RUB');
+      await tx.demo_accounts.update({
         where: { id: account.id },
+        data: { cash_balance: rubBalance.amount, updated_at: new Date() },
       });
-      await tx.demo_portfolio_snapshots.create({
-        data: {
-          account_id: account.id,
-          cash_value: updatedAccount.cash_balance,
-          positions_value: new Prisma.Decimal(0),
-          total_value: updatedAccount.cash_balance,
-          invested_value: new Prisma.Decimal(0),
-        },
-      });
+      await this.createSnapshotTx(tx, account.id, rubBalance.amount);
 
       return { trade };
     });
@@ -336,7 +370,7 @@ export class DemoAccountService {
     return this.prisma.demo_instruments.findMany({
       where: { is_active: true },
       include: { demo_price_cache: true },
-      orderBy: [{ asset_type: 'asc' }, { symbol: 'asc' }],
+      orderBy: [{ asset_type: 'asc' }, { exchange: 'asc' }, { symbol: 'asc' }],
     });
   }
 
@@ -348,7 +382,11 @@ export class DemoAccountService {
 
     try {
       const quotes = await this.marketData.getQuotes(
-        instruments.map((instrument) => instrument.provider_symbol),
+        instruments.map((instrument) => ({
+          provider: instrument.provider,
+          provider_symbol: instrument.provider_symbol,
+          currency: instrument.currency,
+        })),
       );
       const quoteMap = new Map(quotes.map((quote) => [quote.providerSymbol, quote]));
 
@@ -406,7 +444,11 @@ export class DemoAccountService {
       where: { user_id: userId },
     });
 
-    if (account) return account;
+    if (account) {
+      await this.ensureCashBalances(account.id);
+      return account;
+    }
+
     return this.createOrUpdateAccount(userId, {
       name: 'Демо-счет',
       currency: 'RUB',
@@ -426,7 +468,7 @@ export class DemoAccountService {
             currency: instrument.currency,
             exchange: instrument.exchange,
             sector: instrument.sector,
-            provider: 'stooq',
+            provider: instrument.provider,
             provider_symbol: instrument.providerSymbol,
             is_active: true,
             updated_at: new Date(),
@@ -439,12 +481,106 @@ export class DemoAccountService {
             currency: instrument.currency,
             exchange: instrument.exchange,
             sector: instrument.sector,
-            provider: 'stooq',
+            provider: instrument.provider,
             provider_symbol: instrument.providerSymbol,
           },
         }),
       ),
     );
+  }
+
+  private async ensureCashBalances(accountId: bigint) {
+    const account = await this.prisma.demo_accounts.findUniqueOrThrow({
+      where: { id: accountId },
+    });
+    await this.prisma.$transaction(async (tx) => {
+      await this.ensureCashBalancesTx(tx, accountId, account.cash_balance);
+    });
+  }
+
+  private async ensureCashBalancesTx(
+    tx: Prisma.TransactionClient,
+    accountId: bigint,
+    rubAmount = new Prisma.Decimal(0),
+  ) {
+    for (const currency of SUPPORTED_CURRENCIES) {
+      await tx.demo_cash_balances.upsert({
+        where: {
+          account_id_currency: {
+            account_id: accountId,
+            currency,
+          },
+        },
+        update: {},
+        create: {
+          account_id: accountId,
+          currency,
+          amount: currency === 'RUB' ? rubAmount : new Prisma.Decimal(0),
+        },
+      });
+    }
+  }
+
+  private async getBalanceTx(
+    tx: Prisma.TransactionClient,
+    accountId: bigint,
+    currency: DemoCurrency,
+  ) {
+    await this.ensureCashBalancesTx(tx, accountId);
+    return tx.demo_cash_balances.findUniqueOrThrow({
+      where: {
+        account_id_currency: {
+          account_id: accountId,
+          currency,
+        },
+      },
+    });
+  }
+
+  private async incrementCashBalanceTx(
+    tx: Prisma.TransactionClient,
+    accountId: bigint,
+    currency: DemoCurrency,
+    amount: Prisma.Decimal,
+  ) {
+    await this.ensureCashBalancesTx(tx, accountId);
+    return tx.demo_cash_balances.update({
+      where: {
+        account_id_currency: {
+          account_id: accountId,
+          currency,
+        },
+      },
+      data: {
+        amount: { increment: amount },
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  private async decrementCashBalanceTx(
+    tx: Prisma.TransactionClient,
+    accountId: bigint,
+    currency: DemoCurrency,
+    amount: Prisma.Decimal,
+  ) {
+    const balance = await this.getBalanceTx(tx, accountId, currency);
+    if (balance.amount.lessThan(amount)) {
+      throw new BadRequestException(`Not enough ${currency} cash`);
+    }
+
+    return tx.demo_cash_balances.update({
+      where: {
+        account_id_currency: {
+          account_id: accountId,
+          currency,
+        },
+      },
+      data: {
+        amount: { decrement: amount },
+        updated_at: new Date(),
+      },
+    });
   }
 
   private async applyDueIncomeRules(accountId: bigint) {
@@ -463,13 +599,22 @@ export class DemoAccountService {
     await this.prisma.$transaction(async (tx) => {
       for (const rule of dueRules) {
         const effectiveAt = rule.next_run_at ?? now;
-        const updatedAccount = await tx.demo_accounts.update({
-          where: { id: accountId },
-          data: {
-            cash_balance: { increment: rule.amount },
-            updated_at: new Date(),
-          },
-        });
+        const balance = await this.incrementCashBalanceTx(
+          tx,
+          accountId,
+          rule.currency as DemoCurrency,
+          rule.amount,
+        );
+
+        if (rule.currency === 'RUB') {
+          await tx.demo_accounts.update({
+            where: { id: accountId },
+            data: {
+              cash_balance: balance.amount,
+              updated_at: new Date(),
+            },
+          });
+        }
 
         await tx.demo_cash_transactions.create({
           data: {
@@ -490,26 +635,27 @@ export class DemoAccountService {
           },
         });
 
-        await tx.demo_portfolio_snapshots.create({
-          data: {
-            account_id: accountId,
-            cash_value: updatedAccount.cash_balance,
-            positions_value: new Prisma.Decimal(0),
-            total_value: updatedAccount.cash_balance,
-            invested_value: new Prisma.Decimal(0),
-            snapshot_at: effectiveAt,
-          },
-        });
+        await this.createSnapshotTx(tx, accountId, balance.amount, effectiveAt);
       }
     });
   }
 
-  private async getRubRates() {
-    const instruments = await this.prisma.demo_instruments.findMany({
-      where: { symbol: { in: ['USDRUB', 'EURRUB'] } },
-      include: { demo_price_cache: true },
+  private async createSnapshotTx(
+    tx: Prisma.TransactionClient,
+    accountId: bigint,
+    cashValue: Prisma.Decimal,
+    snapshotAt = new Date(),
+  ) {
+    await tx.demo_portfolio_snapshots.create({
+      data: {
+        account_id: accountId,
+        cash_value: cashValue,
+        positions_value: new Prisma.Decimal(0),
+        total_value: cashValue,
+        invested_value: new Prisma.Decimal(0),
+        snapshot_at: snapshotAt,
+      },
     });
-    return this.extractRates(instruments);
   }
 
   private extractRates(
@@ -520,23 +666,49 @@ export class DemoAccountService {
   ) {
     const usdRub = instruments.find((instrument) => instrument.symbol === 'USDRUB');
     const eurRub = instruments.find((instrument) => instrument.symbol === 'EURRUB');
+    const cnyRub = instruments.find((instrument) => instrument.symbol === 'CNYRUB');
 
     return {
       USD: usdRub?.demo_price_cache?.price ?? null,
       EUR: eurRub?.demo_price_cache?.price ?? null,
+      CNY: cnyRub?.demo_price_cache?.price ?? null,
     };
   }
 
   private convertToRub(
     amount: Prisma.Decimal,
     currency: string,
-    rates: { USD: Prisma.Decimal | null; EUR: Prisma.Decimal | null },
+    rates: { USD: Prisma.Decimal | null; EUR: Prisma.Decimal | null; CNY: Prisma.Decimal | null },
   ) {
     if (currency === 'RUB') return amount;
     if (currency === 'USD' && rates.USD) return amount.mul(rates.USD);
     if (currency === 'EUR' && rates.EUR) return amount.mul(rates.EUR);
+    if (currency === 'CNY' && rates.CNY) return amount.mul(rates.CNY);
 
     throw new BadRequestException(`RUB rate is missing for ${currency}`);
+  }
+
+  private convertRubTo(
+    amountRub: Prisma.Decimal,
+    currency: string,
+    rates: { USD: Prisma.Decimal | null; EUR: Prisma.Decimal | null; CNY: Prisma.Decimal | null },
+  ) {
+    if (currency === 'RUB') return amountRub;
+    if (currency === 'USD' && rates.USD) return amountRub.div(rates.USD);
+    if (currency === 'EUR' && rates.EUR) return amountRub.div(rates.EUR);
+    if (currency === 'CNY' && rates.CNY) return amountRub.div(rates.CNY);
+
+    throw new BadRequestException(`RUB rate is missing for ${currency}`);
+  }
+
+  private balanceAmount(
+    balances: Array<{ currency: string; amount: Prisma.Decimal }>,
+    currency: string,
+  ) {
+    return (
+      balances.find((balance) => balance.currency === currency)?.amount ??
+      new Prisma.Decimal(0)
+    );
   }
 
   private toPositionView(
@@ -572,7 +744,7 @@ export class DemoAccountService {
         } | null;
       };
     },
-    rates: { USD: Prisma.Decimal | null; EUR: Prisma.Decimal | null },
+    rates: { USD: Prisma.Decimal | null; EUR: Prisma.Decimal | null; CNY: Prisma.Decimal | null },
   ) {
     const quote = position.demo_instruments.demo_price_cache;
     const marketPrice = quote?.price ?? position.avg_price;

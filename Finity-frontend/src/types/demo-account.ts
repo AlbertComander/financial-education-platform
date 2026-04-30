@@ -19,6 +19,13 @@ export type DemoCashTransaction = {
   created_at: string
 }
 
+export type DemoCashBalance = {
+  account_id: string
+  currency: string
+  amount: string
+  updated_at: string
+}
+
 export type DemoIncomeRule = {
   id: string
   account_id: string
@@ -89,6 +96,7 @@ export type DemoTrade = {
 
 export type DemoAccountOverview = {
   account: DemoAccount
+  cashBalances: DemoCashBalance[]
   transactions: DemoCashTransaction[]
   incomeRules: DemoIncomeRule[]
   instruments: DemoInstrument[]
@@ -96,6 +104,7 @@ export type DemoAccountOverview = {
   trades: DemoTrade[]
   summary: {
     cashBalance: string
+    cashValueRub: string
     positionsValue: string
     totalValue: string
     investedValue: string

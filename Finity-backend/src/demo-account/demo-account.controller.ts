@@ -13,6 +13,7 @@ import type { Request } from 'express';
 import { DemoAccountService } from './demo-account.service';
 import { CreateDemoAccountDto } from './dto/create-demo-account.dto';
 import { DepositDemoCashDto } from './dto/deposit-demo-cash.dto';
+import { ExchangeDemoCurrencyDto } from './dto/exchange-demo-currency.dto';
 import { PlaceDemoTradeDto } from './dto/place-demo-trade.dto';
 import { UpsertIncomeRuleDto } from './dto/upsert-income-rule.dto';
 
@@ -40,6 +41,11 @@ export class DemoAccountController {
   @Post('cash/deposit')
   depositCash(@Req() req: Request, @Body() dto: DepositDemoCashDto) {
     return this.demoAccount.depositCash(this.getUserId(req), dto);
+  }
+
+  @Post('cash/exchange')
+  exchangeCurrency(@Req() req: Request, @Body() dto: ExchangeDemoCurrencyDto) {
+    return this.demoAccount.exchangeCurrency(this.getUserId(req), dto);
   }
 
   @Post('income-rules')

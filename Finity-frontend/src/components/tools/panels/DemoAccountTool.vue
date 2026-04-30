@@ -1,43 +1,34 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import {
-  ArrowDownUp,
-  DollarSign,
-  Euro,
-  RefreshCw,
-  RussianRuble,
-  WalletCards,
-} from 'lucide-vue-next'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { DollarSign, Euro, RefreshCw, RussianRuble, WalletCards } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useDemoAccountStore } from '@/stores/demo-account'
+import type { DemoInstrument, DemoPosition } from '@/types/demo-account'
 
 type DisplayCurrency = 'RUB' | 'USD' | 'EUR'
-type TradeSide = 'buy' | 'sell'
 
 const store = useDemoAccountStore()
 const displayCurrency = ref<DisplayCurrency>('RUB')
 const depositAmount = ref(100000)
 const salaryAmount = ref(150000)
 const salaryDay = ref(5)
-const selectedInstrumentId = ref<number | null>(null)
-const tradeQuantity = ref(1)
-const tradeSide = ref<TradeSide>('buy')
+const exchangeFrom = ref('RUB')
+const exchangeTo = ref('USD')
+const exchangeAmount = ref(10000)
+const buyQuantities = reactive<Record<string, number>>({})
+const sellQuantities = reactive<Record<string, number>>({})
 
-const accountCurrency = computed(() => store.account?.currency ?? 'RUB')
-const portfolioTotal = computed(() => Number(store.summary?.totalValue ?? store.account?.cash_balance ?? 0))
-const cashBalance = computed(() => Number(store.account?.cash_balance ?? 0))
-const positionsValue = computed(() => Number(store.summary?.positionsValue ?? 0))
-const investedValue = computed(() => Number(store.summary?.investedValue ?? 0))
-const portfolioPnl = computed(() => positionsValue.value - investedValue.value)
+const portfolioTotalRub = computed(() => Number(store.summary?.totalValue ?? 0))
+const cashValueRub = computed(() => Number(store.summary?.cashValueRub ?? store.summary?.cashBalance ?? 0))
+const positionsValueRub = computed(() => Number(store.summary?.positionsValue ?? 0))
+const investedValueRub = computed(() => Number(store.summary?.investedValue ?? 0))
+const portfolioPnlRub = computed(() => positionsValueRub.value - investedValueRub.value)
 const pricedInstruments = computed(() => store.instruments.filter((instrument) => instrument.demo_price_cache))
-const tradeableInstruments = computed(() =>
-  store.instruments.filter((instrument) => instrument.demo_price_cache && instrument.asset_type !== 'currency'),
-)
-const selectedInstrument = computed(() =>
-  store.instruments.find((instrument) => Number(instrument.id) === selectedInstrumentId.value) ?? null,
-)
+const marketInstruments = computed(() => store.instruments.filter((instrument) => instrument.asset_type !== 'currency'))
+const currencyInstruments = computed(() => store.instruments.filter((instrument) => instrument.asset_type === 'currency'))
+const currencies = ['RUB', 'USD', 'EUR', 'CNY']
 
 const nextDisplayCurrency = computed<DisplayCurrency>(() => {
   if (displayCurrency.value === 'RUB') return 'USD'
@@ -49,26 +40,16 @@ const nextCurrencyIcon = computed(() => {
   if (nextDisplayCurrency.value === 'EUR') return Euro
   return RussianRuble
 })
-const usdRubRate = computed(() => findRate('USDRUB'))
-const eurRubRate = computed(() => findRate('EURRUB'))
 const displayRate = computed(() => {
-  if (displayCurrency.value === 'USD') return usdRubRate.value
-  if (displayCurrency.value === 'EUR') return eurRubRate.value
+  if (displayCurrency.value === 'USD') return findRate('USDRUB')
+  if (displayCurrency.value === 'EUR') return findRate('EURRUB')
   return 1
 })
-const convertedPortfolioTotal = computed(() => convertRubAmount(portfolioTotal.value))
-const convertedCashBalance = computed(() => convertRubAmount(cashBalance.value))
+const convertedPortfolioTotal = computed(() => convertRubAmount(portfolioTotalRub.value))
 const balanceRateNote = computed(() => {
-  if (displayCurrency.value === 'RUB') return 'Базовая валюта демо-счета'
-  if (!displayRate.value) return 'Нажмите обновить цены, чтобы подтянуть курс'
-  return `Курс: 1 ${displayCurrency.value} = ${formatMoney(displayRate.value, 'RUB')}`
-})
-const estimatedTradeRub = computed(() => {
-  const quote = selectedInstrument.value?.demo_price_cache
-  if (!quote) return 0
-  const price = Number(quote.price)
-  const rate = quote.currency === 'USD' ? usdRubRate.value : quote.currency === 'EUR' ? eurRubRate.value : 1
-  return rate ? price * tradeQuantity.value * rate : 0
+  if (displayCurrency.value === 'RUB') return 'Базовая оценка в рублях'
+  if (!displayRate.value) return 'Обновите цены, чтобы подтянуть курс'
+  return `1 ${displayCurrency.value} = ${formatMoney(displayRate.value, 'RUB')}`
 })
 
 function findRate(symbol: string) {
@@ -86,20 +67,22 @@ function cycleDisplayCurrency() {
   displayCurrency.value = nextDisplayCurrency.value
 }
 
-function formatMoney(value: string | number, selectedCurrency: DisplayCurrency | string = accountCurrency.value) {
+function cashAmount(currency: string) {
+  return Number(store.cashBalances.find((balance) => balance.currency === currency)?.amount ?? 0)
+}
+
+function formatMoney(value: string | number, currency = 'RUB') {
   const amount = typeof value === 'string' ? Number(value) : value
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
-    currency: selectedCurrency,
+    currency,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(amount) ? amount : 0)
 }
 
 function formatQuantity(value: string | number) {
   const amount = typeof value === 'string' ? Number(value) : value
-  return new Intl.NumberFormat('ru-RU', {
-    maximumFractionDigits: 8,
-  }).format(Number.isFinite(amount) ? amount : 0)
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 8 }).format(Number.isFinite(amount) ? amount : 0)
 }
 
 function formatPercent(value: string | null) {
@@ -122,6 +105,14 @@ function isPositive(value: string | number) {
   return Number(value) >= 0
 }
 
+function quantityFor(instrument: DemoInstrument) {
+  return buyQuantities[instrument.id] ?? 1
+}
+
+function sellQuantityFor(position: DemoPosition) {
+  return sellQuantities[position.instrument_id] ?? Number(position.quantity)
+}
+
 async function deposit() {
   await store.depositCash(depositAmount.value, 'Учебное пополнение')
 }
@@ -130,20 +121,17 @@ async function createSalaryRule() {
   await store.createIncomeRule('Ежемесячное демо-пополнение', salaryAmount.value, salaryDay.value)
 }
 
-async function placeTrade() {
-  if (!selectedInstrumentId.value) return
-  await store.placeTrade(tradeSide.value, selectedInstrumentId.value, tradeQuantity.value)
+async function exchangeCurrency() {
+  await store.exchangeCurrency(exchangeFrom.value, exchangeTo.value, exchangeAmount.value)
 }
 
-watch(
-  tradeableInstruments,
-  (items) => {
-    if (!selectedInstrumentId.value && items[0]) {
-      selectedInstrumentId.value = Number(items[0].id)
-    }
-  },
-  { immediate: true },
-)
+async function buyInstrument(instrument: DemoInstrument) {
+  await store.placeTrade('buy', Number(instrument.id), quantityFor(instrument))
+}
+
+async function sellPosition(position: DemoPosition) {
+  await store.placeTrade('sell', Number(position.instrument_id), sellQuantityFor(position))
+}
 
 onMounted(() => {
   void store.fetchOverview()
@@ -157,7 +145,7 @@ onMounted(() => {
         <p class="demo-account__eyebrow">Инвестиционная песочница</p>
         <h1>Демо-счет</h1>
         <p class="demo-account__lead">
-          Учебный счет с виртуальными рублями, регулярными пополнениями, настоящими котировками и пробными сделками.
+          Учебный портфель с реальными котировками, отдельными валютными остатками и покупкой активов только за валюту инструмента.
         </p>
       </div>
 
@@ -169,46 +157,46 @@ onMounted(() => {
 
     <p v-if="store.error" class="demo-account__error">{{ store.error }}</p>
 
-    <div class="demo-account__summary">
+    <section class="demo-account__summary">
       <article class="demo-account__balance">
         <div class="demo-account__balance-head">
           <span class="demo-account__metric-label">Общий баланс</span>
-          <button
-            type="button"
-            class="demo-account__currency-toggle"
-            :title="`Показать в ${nextDisplayCurrency}`"
-            @click="cycleDisplayCurrency"
-          >
+          <button type="button" class="demo-account__currency-toggle" :title="`Показать в ${nextDisplayCurrency}`" @click="cycleDisplayCurrency">
             <component :is="nextCurrencyIcon" class="demo-account__currency-icon" />
           </button>
         </div>
         <strong>{{ formatMoney(convertedPortfolioTotal, displayCurrency) }}</strong>
-        <span>Свободные деньги: {{ formatMoney(convertedCashBalance, displayCurrency) }}</span>
+        <span>Деньги: {{ formatMoney(cashValueRub, 'RUB') }} · Активы: {{ formatMoney(positionsValueRub, 'RUB') }}</span>
         <small>{{ balanceRateNote }}</small>
       </article>
 
       <article class="demo-account__metric">
-        <span class="demo-account__metric-label">В инструментах</span>
-        <strong>{{ formatMoney(positionsValue, 'RUB') }}</strong>
-        <span :class="{ 'demo-account__positive': portfolioPnl >= 0 }">
-          PnL: {{ formatMoney(portfolioPnl, 'RUB') }}
-        </span>
+        <span class="demo-account__metric-label">Результат портфеля</span>
+        <strong :class="{ 'demo-account__positive': portfolioPnlRub >= 0 }">{{ formatMoney(portfolioPnlRub, 'RUB') }}</strong>
+        <span>Без учета учебных пополнений и обменов валют</span>
       </article>
 
       <article class="demo-account__metric">
-        <span class="demo-account__metric-label">Рыночные данные</span>
+        <span class="demo-account__metric-label">Котировки</span>
         <strong>{{ pricedInstruments.length }}/{{ store.instruments.length }}</strong>
-        <span>Котировки нужны для сделок и валютного отображения</span>
+        <span>MOEX для РФ, Stooq для зарубежных инструментов</span>
       </article>
-    </div>
+    </section>
 
-    <div class="demo-account__workspace">
-      <section class="demo-account__panel">
+    <section class="demo-account__cash-grid">
+      <article v-for="currency in currencies" :key="currency" class="demo-account__cash-card">
+        <span>{{ currency }}</span>
+        <strong>{{ formatMoney(cashAmount(currency), currency) }}</strong>
+      </article>
+    </section>
+
+    <section class="demo-account__workspace">
+      <article class="demo-account__panel">
         <div class="demo-account__panel-heading">
           <WalletCards class="demo-account__panel-icon" />
           <div>
             <h2>Деньги и поступления</h2>
-            <p>Пополнения учебные, но баланс и операции ведутся как на настоящем счете.</p>
+            <p>Пополнения начисляются в рублях, а иностранную валюту нужно покупать отдельно.</p>
           </div>
         </div>
 
@@ -231,64 +219,43 @@ onMounted(() => {
           </div>
           <Button variant="secondary" :disabled="store.isMutating" @click="createSalaryRule">Добавить</Button>
         </div>
+      </article>
 
-        <div v-if="store.incomeRules.length" class="demo-account__income-rules">
-          <article v-for="rule in store.incomeRules" :key="rule.id" class="demo-account__income-rule">
-            <div>
-              <strong>{{ rule.title }}</strong>
-              <span>{{ formatMoney(rule.amount, rule.currency) }} · {{ rule.day_of_month }} число</span>
-            </div>
-            <small>{{ rule.is_active ? formatDate(rule.next_run_at) : 'пауза' }}</small>
-          </article>
-        </div>
-      </section>
-
-      <section class="demo-account__panel">
-        <div class="demo-account__panel-heading">
-          <ArrowDownUp class="demo-account__panel-icon" />
-          <div>
-            <h2>Сделка</h2>
-            <p>Покупка списывает рубли по текущему курсу, продажа возвращает рубли на счет.</p>
-          </div>
-        </div>
-
-        <div class="demo-account__trade-grid">
+      <article class="demo-account__panel">
+        <h2>Обмен валюты</h2>
+        <p>Покупка зарубежных активов станет доступна только после покупки нужной валюты.</p>
+        <div class="demo-account__exchange-row">
           <div class="demo-account__field">
-            <Label for="demo-trade-side">Действие</Label>
-            <select id="demo-trade-side" v-model="tradeSide" class="demo-account__select">
-              <option value="buy">Купить</option>
-              <option value="sell">Продать</option>
+            <Label for="exchange-from">Из</Label>
+            <select id="exchange-from" v-model="exchangeFrom" class="demo-account__select">
+              <option v-for="currency in currencies" :key="currency" :value="currency">{{ currency }}</option>
             </select>
           </div>
-
           <div class="demo-account__field">
-            <Label for="demo-instrument">Инструмент</Label>
-            <select id="demo-instrument" v-model.number="selectedInstrumentId" class="demo-account__select">
-              <option v-for="instrument in tradeableInstruments" :key="instrument.id" :value="Number(instrument.id)">
-                {{ instrument.symbol }} · {{ instrument.name }}
-              </option>
+            <Label for="exchange-to">В</Label>
+            <select id="exchange-to" v-model="exchangeTo" class="demo-account__select">
+              <option v-for="currency in currencies" :key="currency" :value="currency">{{ currency }}</option>
             </select>
           </div>
-
           <div class="demo-account__field">
-            <Label for="demo-quantity">Количество</Label>
-            <Input id="demo-quantity" v-model.number="tradeQuantity" type="number" min="0.00000001" step="1" />
+            <Label for="exchange-amount">Сумма</Label>
+            <Input id="exchange-amount" v-model.number="exchangeAmount" type="number" min="0.01" step="100" />
           </div>
+          <Button :disabled="store.isMutating || exchangeFrom === exchangeTo" @click="exchangeCurrency">Обменять</Button>
         </div>
-
-        <div class="demo-account__trade-footer">
-          <span>Оценка сделки: {{ formatMoney(estimatedTradeRub, 'RUB') }}</span>
-          <Button :disabled="store.isMutating || !selectedInstrumentId" @click="placeTrade">
-            {{ tradeSide === 'buy' ? 'Купить' : 'Продать' }}
-          </Button>
+        <div class="demo-account__fx-list">
+          <span v-for="instrument in currencyInstruments" :key="instrument.id">
+            {{ instrument.symbol }}:
+            <b>{{ instrument.demo_price_cache ? formatMoney(instrument.demo_price_cache.price, 'RUB') : 'нет цены' }}</b>
+          </span>
         </div>
-      </section>
-    </div>
+      </article>
+    </section>
 
     <section class="demo-account__panel">
       <div class="demo-account__section-title">
         <h2>Портфель</h2>
-        <span>Позиции оцениваются в рублях по последним доступным ценам и курсам</span>
+        <span>Продажа выполняется из позиции, без отдельной вкладки сделок</span>
       </div>
 
       <div v-if="store.positions.length" class="demo-account__positions">
@@ -302,10 +269,6 @@ onMounted(() => {
             <b>{{ formatQuantity(position.quantity) }}</b>
           </div>
           <div>
-            <small>Средняя</small>
-            <b>{{ formatMoney(position.avg_price, position.demo_instruments.currency) }}</b>
-          </div>
-          <div>
             <small>Стоимость</small>
             <b>{{ formatMoney(position.marketValueRub, 'RUB') }}</b>
           </div>
@@ -315,13 +278,51 @@ onMounted(() => {
               {{ formatMoney(position.unrealizedPnlRub, 'RUB') }}
             </b>
           </div>
+          <div class="demo-account__position-actions">
+            <Input v-model.number="sellQuantities[position.instrument_id]" type="number" min="0.00000001" :max="Number(position.quantity)" step="1" />
+            <Button variant="outline" :disabled="store.isMutating" @click="sellPosition(position)">Продать</Button>
+          </div>
         </article>
       </div>
-      <p v-else class="demo-account__muted">Портфель пока пуст. Обновите цены и совершите первую учебную покупку.</p>
+      <p v-else class="demo-account__muted">Портфель пока пуст. Обновите цены и купите первый инструмент в рыночной карточке.</p>
     </section>
 
-    <div class="demo-account__workspace">
-      <section class="demo-account__panel">
+    <section class="demo-account__market">
+      <div class="demo-account__section-title">
+        <h2>Рынок</h2>
+        <span>Российские акции через MOEX ISS, зарубежные инструменты через внешний провайдер котировок</span>
+      </div>
+
+      <div class="demo-account__instrument-grid">
+        <article v-for="instrument in marketInstruments" :key="instrument.id" class="demo-account__instrument">
+          <div class="demo-account__instrument-head">
+            <div>
+              <strong>{{ instrument.symbol }}</strong>
+              <span>{{ instrument.name }}</span>
+            </div>
+            <small>{{ instrument.exchange }}</small>
+          </div>
+
+          <div v-if="instrument.demo_price_cache" class="demo-account__quote">
+            <b>{{ formatMoney(instrument.demo_price_cache.price, instrument.demo_price_cache.currency) }}</b>
+            <span :class="{ 'demo-account__quote-change--positive': Number(instrument.demo_price_cache.change_percent) >= 0 }">
+              {{ formatPercent(instrument.demo_price_cache.change_percent) }}
+            </span>
+          </div>
+          <p v-else class="demo-account__muted">Цена появится после обновления котировок.</p>
+
+          <div class="demo-account__buy-row">
+            <Input v-model.number="buyQuantities[instrument.id]" type="number" min="0.00000001" step="1" />
+            <Button :disabled="store.isMutating || !instrument.demo_price_cache" @click="buyInstrument(instrument)">
+              Купить за {{ instrument.currency }}
+            </Button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="demo-account__workspace">
+      <article class="demo-account__panel">
         <h2>Последние сделки</h2>
         <div v-if="store.trades.length" class="demo-account__list">
           <article v-for="trade in store.trades" :key="trade.id" class="demo-account__list-item">
@@ -333,10 +334,10 @@ onMounted(() => {
           </article>
         </div>
         <p v-else class="demo-account__muted">Сделок пока нет.</p>
-      </section>
+      </article>
 
-      <section class="demo-account__panel">
-        <h2>Последние операции</h2>
+      <article class="demo-account__panel">
+        <h2>Операции с деньгами</h2>
         <div v-if="store.transactions.length" class="demo-account__list">
           <article v-for="transaction in store.transactions" :key="transaction.id" class="demo-account__list-item">
             <div>
@@ -347,36 +348,7 @@ onMounted(() => {
           </article>
         </div>
         <p v-else class="demo-account__muted">Операций пока нет.</p>
-      </section>
-    </div>
-
-    <section class="demo-account__market">
-      <div class="demo-account__section-title">
-        <h2>Рыночные инструменты</h2>
-        <span>Акции, ETF, валюта и крипто для первого учебного портфеля</span>
-      </div>
-
-      <div class="demo-account__instrument-grid">
-        <article v-for="instrument in store.instruments" :key="instrument.id" class="demo-account__instrument">
-          <div class="demo-account__instrument-head">
-            <div>
-              <strong>{{ instrument.symbol }}</strong>
-              <span>{{ instrument.name }}</span>
-            </div>
-            <small>{{ instrument.asset_type }}</small>
-          </div>
-
-          <div v-if="instrument.demo_price_cache" class="demo-account__quote">
-            <b>{{ formatMoney(instrument.demo_price_cache.price, instrument.demo_price_cache.currency) }}</b>
-            <span :class="{ 'demo-account__quote-change--positive': Number(instrument.demo_price_cache.change_percent) >= 0 }">
-              {{ formatPercent(instrument.demo_price_cache.change_percent) }}
-            </span>
-          </div>
-          <p v-else class="demo-account__muted">Цена появится после обновления котировок.</p>
-
-          <footer>{{ instrument.exchange }} · {{ instrument.sector }}</footer>
-        </article>
-      </div>
+      </article>
     </section>
   </section>
 </template>
@@ -389,7 +361,6 @@ onMounted(() => {
 
 .demo-account__header {
   display: flex;
-  align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
   padding: 28px;
@@ -403,7 +374,6 @@ onMounted(() => {
   margin: 0;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0;
   text-transform: uppercase;
   opacity: 0.78;
 }
@@ -416,7 +386,7 @@ onMounted(() => {
 
 .demo-account__lead {
   margin: 0;
-  max-width: 620px;
+  max-width: 720px;
   color: hsl(0 0% 100% / 0.82);
 }
 
@@ -442,18 +412,32 @@ onMounted(() => {
 }
 
 .demo-account__summary,
-.demo-account__workspace {
+.demo-account__cash-grid,
+.demo-account__workspace,
+.demo-account__instrument-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
+.demo-account__summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.demo-account__cash-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .demo-account__workspace {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.demo-account__instrument-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .demo-account__balance,
 .demo-account__metric,
+.demo-account__cash-card,
 .demo-account__panel,
 .demo-account__instrument {
   border: 1px solid hsl(var(--border));
@@ -463,15 +447,27 @@ onMounted(() => {
 }
 
 .demo-account__balance,
-.demo-account__metric {
-  display: grid;
-  gap: 8px;
+.demo-account__metric,
+.demo-account__cash-card,
+.demo-account__panel,
+.demo-account__instrument,
+.demo-account__market {
   padding: 18px;
 }
 
-.demo-account__balance-head {
+.demo-account__balance,
+.demo-account__metric,
+.demo-account__cash-card {
+  display: grid;
+  gap: 8px;
+}
+
+.demo-account__balance-head,
+.demo-account__section-title,
+.demo-account__instrument-head,
+.demo-account__quote,
+.demo-account__list-item {
   display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -489,31 +485,29 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.demo-account__currency-toggle:hover {
-  background: hsl(var(--accent));
-}
-
 .demo-account__balance strong,
-.demo-account__metric strong {
-  font-size: 26px;
-  line-height: 1.1;
+.demo-account__metric strong,
+.demo-account__cash-card strong {
+  font-size: 24px;
 }
 
-.demo-account__balance > span,
+.demo-account__balance span,
 .demo-account__metric span:last-child,
 .demo-account__muted,
-.demo-account__balance small {
+.demo-account__balance small,
+.demo-account__cash-card span,
+.demo-account__panel p,
+.demo-account__section-title span,
+.demo-account__list-item span,
+.demo-account__position span,
+.demo-account__position small,
+.demo-account__fx-list {
   color: hsl(var(--muted-foreground));
   font-size: 13px;
 }
 
 .demo-account__positive {
   color: hsl(150 72% 30%) !important;
-}
-
-.demo-account__panel,
-.demo-account__market {
-  padding: 20px;
 }
 
 .demo-account__panel-heading {
@@ -529,18 +523,28 @@ onMounted(() => {
   font-size: 20px;
 }
 
-.demo-account__panel p,
-.demo-account__section-title span {
-  margin: 4px 0 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 14px;
+.demo-account__form-row,
+.demo-account__form-row--salary,
+.demo-account__exchange-row,
+.demo-account__buy-row,
+.demo-account__position-actions {
+  display: grid;
+  gap: 12px;
+  align-items: end;
 }
 
 .demo-account__form-row {
-  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: end;
+}
+
+.demo-account__form-row--salary,
+.demo-account__exchange-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+}
+
+.demo-account__buy-row,
+.demo-account__position-actions {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .demo-account__form-row + .demo-account__form-row {
@@ -549,14 +553,11 @@ onMounted(() => {
   border-top: 1px solid hsl(var(--border));
 }
 
-.demo-account__form-row--salary,
-.demo-account__trade-grid {
-  grid-template-columns: minmax(0, 1fr) 92px auto;
-}
-
-.demo-account__field {
+.demo-account__field,
+.demo-account__list,
+.demo-account__positions {
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
 
 .demo-account__select {
@@ -569,122 +570,46 @@ onMounted(() => {
   color: hsl(var(--foreground));
 }
 
-.demo-account__trade-grid {
-  display: grid;
-  gap: 12px;
-}
-
-.demo-account__trade-footer {
+.demo-account__fx-list {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid hsl(var(--border));
-}
-
-.demo-account__list,
-.demo-account__positions,
-.demo-account__income-rules {
-  display: grid;
-  gap: 10px;
-}
-
-.demo-account__list-item,
-.demo-account__position,
-.demo-account__income-rule {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid hsl(var(--border));
 }
 
 .demo-account__position {
   display: grid;
-  grid-template-columns: minmax(180px, 1.3fr) repeat(4, minmax(110px, 1fr));
+  grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(110px, 1fr)) minmax(190px, 1fr);
+  gap: 12px;
   align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border));
 }
 
-.demo-account__list-item:last-child,
 .demo-account__position:last-child,
-.demo-account__income-rule:last-child {
+.demo-account__list-item:last-child {
   border-bottom: 0;
 }
 
-.demo-account__list-item div,
-.demo-account__position div,
-.demo-account__income-rule div {
-  display: grid;
-  gap: 3px;
-}
-
-.demo-account__list-item span,
-.demo-account__position span,
-.demo-account__position small,
-.demo-account__income-rule span,
-.demo-account__income-rule small {
-  color: hsl(var(--muted-foreground));
-  font-size: 13px;
-}
-
-.demo-account__income-rules {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid hsl(var(--border));
-}
-
-.demo-account__market {
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-}
-
-.demo-account__section-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.demo-account__instrument-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+.demo-account__list-item {
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border));
 }
 
 .demo-account__instrument {
   display: grid;
-  gap: 16px;
-  padding: 16px;
-}
-
-.demo-account__instrument-head,
-.demo-account__quote {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  gap: 14px;
 }
 
 .demo-account__instrument-head div {
   display: grid;
   gap: 4px;
-  min-width: 0;
 }
 
 .demo-account__instrument-head span,
-.demo-account__instrument footer {
+.demo-account__instrument small {
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-}
-
-.demo-account__instrument-head small {
-  border-radius: 999px;
-  padding: 4px 8px;
-  background: hsl(164 48% 92%);
-  color: hsl(164 48% 23%);
-  font-weight: 700;
 }
 
 .demo-account__quote b {
@@ -701,25 +626,31 @@ onMounted(() => {
 }
 
 @media (max-width: 1100px) {
+  .demo-account__summary,
+  .demo-account__cash-grid,
+  .demo-account__workspace,
+  .demo-account__instrument-grid {
+    grid-template-columns: 1fr;
+  }
+
   .demo-account__position {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 760px) {
   .demo-account__header,
   .demo-account__section-title,
-  .demo-account__trade-footer {
+  .demo-account__list-item {
     flex-direction: column;
-    align-items: stretch;
   }
 
-  .demo-account__summary,
-  .demo-account__workspace,
-  .demo-account__instrument-grid,
   .demo-account__form-row,
   .demo-account__form-row--salary,
-  .demo-account__trade-grid {
+  .demo-account__exchange-row,
+  .demo-account__buy-row,
+  .demo-account__position-actions,
+  .demo-account__position {
     grid-template-columns: 1fr;
   }
 }
