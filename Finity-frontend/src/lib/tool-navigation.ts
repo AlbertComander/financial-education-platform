@@ -6,7 +6,6 @@
   | 'credit-calculator'
   | 'savings-planner'
   | 'scenario-comparison'
-  | 'demo-account'
 
 export type InteractiveToolLink = {
   id: InteractiveToolId
@@ -18,7 +17,6 @@ export type InteractiveToolLink = {
     | 'tool-credit-calculator'
     | 'tool-savings-planner'
     | 'tool-scenario-comparison'
-    | 'tool-demo-account'
   to: string
   name: string
   shortName: string
@@ -32,8 +30,7 @@ export type InteractiveToolLink = {
     | 'calculator'
     | 'target'
     | 'split'
-    | 'wallet-cards'
-  theme: 'gold' | 'ocean' | 'mint' | 'rose' | 'indigo' | 'teal' | 'sunset' | 'market'
+  theme: 'gold' | 'ocean' | 'mint' | 'rose' | 'indigo' | 'teal' | 'sunset'
 }
 
 export const interactiveToolLinks: InteractiveToolLink[] = [
@@ -47,17 +44,6 @@ export const interactiveToolLinks: InteractiveToolLink[] = [
     eyebrow: 'Finity Tools',
     iconKey: 'sparkles',
     theme: 'gold',
-  },
-  {
-    id: 'demo-account',
-    routeName: 'tool-demo-account',
-    to: '/tools/demo-account',
-    name: 'Демо-счет',
-    shortName: 'Демо-счет',
-    description: 'Учебный счет с виртуальными деньгами, регулярными пополнениями и настоящими рыночными котировками.',
-    eyebrow: 'Инструменты • Рынок',
-    iconKey: 'wallet-cards',
-    theme: 'market',
   },
   {
     id: 'budget-planner',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RefreshCw, WalletCards } from 'lucide-vue-next'
+import { DollarSign, Euro, RefreshCw, RussianRuble, WalletCards } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -8,19 +8,61 @@ import { useDemoAccountStore } from '@/stores/demo-account'
 
 const store = useDemoAccountStore()
 
-const depositAmount = ref(5000)
-const salaryAmount = ref(2500)
+type DisplayCurrency = 'RUB' | 'USD' | 'EUR'
+
+const displayCurrency = ref<DisplayCurrency>('RUB')
+const depositAmount = ref(100000)
+const salaryAmount = ref(150000)
 const salaryDay = ref(5)
 
-const currency = computed(() => store.account?.currency ?? 'USD')
+const accountCurrency = computed(() => store.account?.currency ?? 'RUB')
+const nextDisplayCurrency = computed<DisplayCurrency>(() => {
+  if (displayCurrency.value === 'RUB') return 'USD'
+  if (displayCurrency.value === 'USD') return 'EUR'
+  return 'RUB'
+})
+const nextCurrencyIcon = computed(() => {
+  if (nextDisplayCurrency.value === 'USD') return DollarSign
+  if (nextDisplayCurrency.value === 'EUR') return Euro
+  return RussianRuble
+})
 
 const portfolioTotal = computed(() => Number(store.summary?.totalValue ?? store.account?.cash_balance ?? 0))
 const cashBalance = computed(() => Number(store.account?.cash_balance ?? 0))
 const pricedInstruments = computed(() =>
   store.instruments.filter((instrument) => instrument.demo_price_cache),
 )
+const usdRubRate = computed(() => findRate('USDRUB'))
+const eurRubRate = computed(() => findRate('EURRUB'))
+const displayRate = computed(() => {
+  if (displayCurrency.value === 'USD') return usdRubRate.value
+  if (displayCurrency.value === 'EUR') return eurRubRate.value
+  return 1
+})
+const convertedPortfolioTotal = computed(() => convertRubAmount(portfolioTotal.value))
+const convertedCashBalance = computed(() => convertRubAmount(cashBalance.value))
+const balanceRateNote = computed(() => {
+  if (displayCurrency.value === 'RUB') return 'Базовая валюта демо-счета'
+  if (!displayRate.value) return 'Нажмите обновить цены, чтобы подтянуть курс'
+  return `Курс: 1 ${displayCurrency.value} = ${formatMoney(displayRate.value, 'RUB')}`
+})
 
-function formatMoney(value: string | number, selectedCurrency = currency.value) {
+function findRate(symbol: string) {
+  const instrument = store.instruments.find((item) => item.symbol === symbol)
+  const price = Number(instrument?.demo_price_cache?.price)
+  return Number.isFinite(price) && price > 0 ? price : null
+}
+
+function convertRubAmount(value: number) {
+  if (displayCurrency.value === 'RUB') return value
+  return displayRate.value ? value / displayRate.value : 0
+}
+
+function cycleDisplayCurrency() {
+  displayCurrency.value = nextDisplayCurrency.value
+}
+
+function formatMoney(value: string | number, selectedCurrency: DisplayCurrency | string = accountCurrency.value) {
   const amount = typeof value === 'string' ? Number(value) : value
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
@@ -79,9 +121,20 @@ onMounted(() => {
 
     <div class="demo-account__summary">
       <article class="demo-account__balance">
-        <span class="demo-account__metric-label">Общий баланс</span>
-        <strong>{{ formatMoney(portfolioTotal) }}</strong>
-        <span>Свободные деньги: {{ formatMoney(cashBalance) }}</span>
+        <div class="demo-account__balance-head">
+          <span class="demo-account__metric-label">Общий баланс</span>
+          <button
+            type="button"
+            class="demo-account__currency-toggle"
+            :title="`Показать в ${nextDisplayCurrency}`"
+            @click="cycleDisplayCurrency"
+          >
+            <component :is="nextCurrencyIcon" class="demo-account__currency-icon" />
+          </button>
+        </div>
+        <strong>{{ formatMoney(convertedPortfolioTotal, displayCurrency) }}</strong>
+        <span>Свободные деньги: {{ formatMoney(convertedCashBalance, displayCurrency) }}</span>
+        <small>{{ balanceRateNote }}</small>
       </article>
 
       <article class="demo-account__metric">
@@ -109,7 +162,7 @@ onMounted(() => {
 
         <div class="demo-account__form-row">
           <div class="demo-account__field">
-            <Label for="demo-deposit">Сумма</Label>
+            <Label for="demo-deposit">Сумма, ₽</Label>
             <Input id="demo-deposit" v-model.number="depositAmount" type="number" min="1" step="100" />
           </div>
           <Button :disabled="store.isMutating" @click="deposit">Начислить</Button>
@@ -117,7 +170,7 @@ onMounted(() => {
 
         <div class="demo-account__form-row demo-account__form-row--salary">
           <div class="demo-account__field">
-            <Label for="demo-salary">Ежемесячно</Label>
+            <Label for="demo-salary">Ежемесячно, ₽</Label>
             <Input id="demo-salary" v-model.number="salaryAmount" type="number" min="1" step="100" />
           </div>
           <div class="demo-account__field demo-account__field--day">
@@ -220,7 +273,8 @@ onMounted(() => {
 }
 
 .demo-account__button-icon,
-.demo-account__panel-icon {
+.demo-account__panel-icon,
+.demo-account__currency-icon {
   width: 16px;
   height: 16px;
 }
@@ -261,17 +315,47 @@ onMounted(() => {
   padding: 18px;
 }
 
+.demo-account__balance-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.demo-account__currency-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.demo-account__currency-toggle:hover {
+  background: hsl(var(--accent));
+  border-color: hsl(var(--accent));
+}
+
 .demo-account__balance strong,
 .demo-account__metric strong {
   font-size: 26px;
   line-height: 1.1;
 }
 
-.demo-account__balance span:last-child,
+.demo-account__balance > span,
 .demo-account__metric span:last-child,
 .demo-account__muted {
   color: hsl(var(--muted-foreground));
   font-size: 13px;
+}
+
+.demo-account__balance small {
+  color: hsl(var(--muted-foreground));
 }
 
 .demo-account__panel,

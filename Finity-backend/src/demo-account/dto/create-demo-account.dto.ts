@@ -6,7 +6,7 @@ export class CreateDemoAccountDto {
   name?: string;
 
   @IsOptional()
-  @IsIn(['USD', 'EUR', 'RUB'])
+  @IsIn(['RUB'])
   currency?: string;
 
   @IsOptional()

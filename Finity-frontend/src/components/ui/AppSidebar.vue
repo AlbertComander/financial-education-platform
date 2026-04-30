@@ -12,6 +12,7 @@ import iconLogin from '@/assets/icons/sidebar/login.svg'
 import iconRegister from '@/assets/icons/sidebar/register.svg'
 import iconLearning from '@/assets/icons/sidebar/learning.svg'
 import iconTools from '@/assets/icons/sidebar/tools.svg'
+import iconDemoAccount from '@/assets/icons/sidebar/demo-account.svg'
 import iconProfile from '@/assets/icons/sidebar/profile.svg'
 import iconSettings from '@/assets/icons/sidebar/settings.svg'
 import iconLogout from '@/assets/icons/sidebar/logout.svg'
@@ -37,6 +38,7 @@ const sidebarIconMap = {
   register: iconRegister,
   learning: iconLearning,
   tools: iconTools,
+  demoAccount: iconDemoAccount,
   profile: iconProfile,
   settings: iconSettings,
   logout: iconLogout,
@@ -62,6 +64,7 @@ const primaryLinks = computed(() => {
   return [
     { name: 'Профиль', to: '/profile', iconKey: 'profile' },
     { name: 'Обучение', to: '/learning', iconKey: 'learning' },
+    { name: 'Демо-счет', to: '/demo-account', iconKey: 'demoAccount' },
   ]
 })
 

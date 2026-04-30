@@ -50,7 +50,7 @@ export class DemoAccountService {
   }
 
   async createOrUpdateAccount(userId: bigint, dto: CreateDemoAccountDto) {
-    const currency = dto.currency ?? 'USD';
+    const currency = 'RUB';
     const initialCash = new Prisma.Decimal(dto.initialCash ?? 0);
 
     const existing = await this.prisma.demo_accounts.findUnique({
@@ -226,8 +226,8 @@ export class DemoAccountService {
     if (account) return account;
     return this.createOrUpdateAccount(userId, {
       name: 'Демо-счет',
-      currency: 'USD',
-      initialCash: 10000,
+      currency: 'RUB',
+      initialCash: 100000,
     });
   }
 

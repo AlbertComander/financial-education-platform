@@ -74,14 +74,24 @@ export const DEMO_INSTRUMENTS: DemoInstrumentSeed[] = [
     providerSymbol: 'gld.us',
   },
   {
-    code: 'FX:EURUSD',
-    symbol: 'EURUSD',
-    name: 'Euro / US Dollar',
+    code: 'FX:USDRUB',
+    symbol: 'USDRUB',
+    name: 'US Dollar / Russian Ruble',
     assetType: 'currency',
-    currency: 'USD',
+    currency: 'RUB',
     exchange: 'FX',
     sector: 'Currency',
-    providerSymbol: 'eurusd',
+    providerSymbol: 'usdrub',
+  },
+  {
+    code: 'FX:EURRUB',
+    symbol: 'EURRUB',
+    name: 'Euro / Russian Ruble',
+    assetType: 'currency',
+    currency: 'RUB',
+    exchange: 'FX',
+    sector: 'Currency',
+    providerSymbol: 'eurrub',
   },
   {
     code: 'CRYPTO:BTCUSD',
@@ -133,7 +143,7 @@ export class MarketDataService {
         return {
           providerSymbol: row.Symbol.toLowerCase(),
           price: close,
-          currency: 'USD',
+          currency: this.inferQuoteCurrency(row.Symbol),
           changeAbs,
           changePercent,
           asOf: Number.isNaN(asOf.getTime()) ? new Date() : asOf,
@@ -146,5 +156,12 @@ export class MarketDataService {
   private parseCsvRow(headers: string[], row: string): Record<string, string> {
     const values = row.split(',').map((value) => value.trim());
     return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));
+  }
+
+  private inferQuoteCurrency(symbol: string): string {
+    const normalized = symbol.toLowerCase();
+    if (normalized.endsWith('rub')) return 'RUB';
+    if (normalized.endsWith('eur')) return 'EUR';
+    return 'USD';
   }
 }

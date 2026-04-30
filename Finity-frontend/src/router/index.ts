@@ -14,6 +14,7 @@ const LessonTestResultView = () => import('@/views/LessonTestResultView.vue')
 const QuizView = () => import('@/views/QuizView.vue')
 const AdminLearningView = () => import('@/views/AdminLearningView.vue')
 const ToolsView = () => import('@/views/ToolsView.vue')
+const DemoAccountView = () => import('@/views/DemoAccountView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -93,6 +94,12 @@ const router = createRouter({
       name: 'tools-home',
       component: ToolsView,
       meta: { requiresAuth: true, toolId: 'overview' },
+    },
+    {
+      path: '/demo-account',
+      name: 'demo-account',
+      component: DemoAccountView,
+      meta: { requiresAuth: true },
     },
     ...interactiveToolLinks
       .filter((tool) => tool.id !== 'overview')
