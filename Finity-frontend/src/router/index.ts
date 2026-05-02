@@ -13,7 +13,9 @@ const LessonView = () => import('@/views/LessonView.vue')
 const LessonTestResultView = () => import('@/views/LessonTestResultView.vue')
 const QuizView = () => import('@/views/QuizView.vue')
 const AdminLearningView = () => import('@/views/AdminLearningView.vue')
+const AdminDemoInstrumentsView = () => import('@/views/AdminDemoInstrumentsView.vue')
 const ToolsView = () => import('@/views/ToolsView.vue')
+const DemoAccountView = () => import('@/views/DemoAccountView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -89,10 +91,33 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: '/admin/instruments',
+      name: 'admin-instruments',
+      component: AdminDemoInstrumentsView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: '/tools',
       name: 'tools-home',
       component: ToolsView,
       meta: { requiresAuth: true, toolId: 'overview' },
+    },
+    {
+      path: '/demo-account/instruments/:instrumentId',
+      name: 'demo-account-instrument',
+      component: DemoAccountView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/demo-account',
+      name: 'demo-account',
+      component: DemoAccountView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/tools/demo-account',
+      redirect: '/demo-account',
+      meta: { requiresAuth: true },
     },
     ...interactiveToolLinks
       .filter((tool) => tool.id !== 'overview')
