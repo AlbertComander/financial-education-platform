@@ -8,6 +8,19 @@ export type DemoAccount = {
   updated_at: string
 }
 
+export type DemoAccountListItem = DemoAccount & {
+  summary: {
+    cashValueRub: string
+    positionsValue: string
+    totalValue: string
+    investedValue: string
+    pnlRub: string
+    pnlPercent: string
+    dayChangeRub: string
+    dayChangePercent: string
+  }
+}
+
 export type DemoCashTransaction = {
   id: string
   account_id: string
@@ -47,6 +60,7 @@ export type DemoPriceCache = {
   change_percent: string | null
   as_of: string
   provider: string
+  raw_json?: Record<string, unknown>
   updated_at: string
 }
 
@@ -59,10 +73,44 @@ export type DemoInstrument = {
   currency: string
   exchange: string | null
   sector: string | null
+  country?: string | null
+  isin?: string | null
+  website_url?: string | null
+  logo_url?: string | null
   provider: string
   provider_symbol: string
   is_active: boolean
+  lotSize?: number
+  faceValue?: number | null
+  description?: string
+  isFavorite?: boolean
   demo_price_cache: DemoPriceCache | null
+}
+
+export type DemoInstrumentMetric = {
+  id: string
+  instrument_id: string
+  section: string
+  label: string
+  value: string
+  hint: string | null
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
+export type DemoInstrumentDividend = {
+  id: string
+  instrument_id: string
+  record_date: string
+  amount: string
+  currency: string
+  yield_percent: string | null
+  period: string | null
+  declared_at: string | null
+  order_index: number
+  created_at: string
+  updated_at: string
 }
 
 export type DemoPosition = {
@@ -94,6 +142,16 @@ export type DemoTrade = {
   demo_instruments: DemoInstrument
 }
 
+export type DemoPortfolioSnapshot = {
+  id: string
+  account_id: string
+  cash_value: string
+  positions_value: string
+  total_value: string
+  invested_value: string
+  snapshot_at: string
+}
+
 export type DemoCandle = {
   begin: string
   open: number
@@ -111,16 +169,23 @@ export type DemoInstrumentDetails = {
     high: number | null
     low: number | null
   }
+  providerFacts: Record<string, string | number | null>
+  keyMetrics: DemoInstrumentMetric[]
+  dividends: DemoInstrumentDividend[]
+  events: DemoTrade[]
 }
 
 export type DemoAccountOverview = {
+  accounts: DemoAccountListItem[]
   account: DemoAccount
   cashBalances: DemoCashBalance[]
   transactions: DemoCashTransaction[]
   incomeRules: DemoIncomeRule[]
   instruments: DemoInstrument[]
   positions: DemoPosition[]
+  allPositions: DemoPosition[]
   trades: DemoTrade[]
+  snapshots: DemoPortfolioSnapshot[]
   summary: {
     cashBalance: string
     cashValueRub: string

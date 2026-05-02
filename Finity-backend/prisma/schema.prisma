@@ -172,7 +172,6 @@ model demo_accounts {
   demo_positions         demo_positions[]
   demo_trades            demo_trades[]
 
-  @@unique([user_id])
   @@index([user_id], map: "idx_demo_accounts_user")
 }
 
@@ -226,17 +225,68 @@ model demo_instruments {
   currency          String              @default("USD")
   exchange          String?
   sector            String?
+  country           String?
+  isin              String?
+  website_url       String?
+  logo_url          String?
+  description       String?
   provider          String              @default("stooq")
   provider_symbol   String
   is_active         Boolean             @default(true)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
+  demo_instrument_dividends demo_instrument_dividends[]
+  demo_instrument_metrics demo_instrument_metrics[]
   demo_positions    demo_positions[]
   demo_price_cache  demo_price_cache?
   demo_trades       demo_trades[]
+  demo_favorite_instruments demo_favorite_instruments[]
 
   @@index([asset_type], map: "idx_demo_instruments_asset_type")
   @@index([symbol], map: "idx_demo_instruments_symbol")
+}
+
+model demo_instrument_metrics {
+  id               BigInt           @id @default(autoincrement())
+  instrument_id    BigInt
+  section          String           @default("key")
+  label            String
+  value            String
+  hint             String?
+  order_index      Int              @default(0)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  demo_instruments demo_instruments @relation(fields: [instrument_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([instrument_id, order_index], map: "idx_demo_instrument_metrics_order")
+}
+
+model demo_instrument_dividends {
+  id               BigInt           @id @default(autoincrement())
+  instrument_id    BigInt
+  record_date      DateTime         @db.Date
+  amount           Decimal          @db.Decimal(18, 6)
+  currency         String           @default("RUB")
+  yield_percent    Decimal?         @db.Decimal(10, 4)
+  period           String?
+  declared_at      DateTime?        @db.Date
+  order_index      Int              @default(0)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  demo_instruments demo_instruments @relation(fields: [instrument_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([instrument_id, record_date], map: "idx_demo_instrument_dividends_date")
+}
+
+model demo_favorite_instruments {
+  user_id       BigInt
+  instrument_id BigInt
+  created_at    DateTime         @default(now()) @db.Timestamptz(6)
+  users          users            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  demo_instruments demo_instruments @relation(fields: [instrument_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, instrument_id])
+  @@index([instrument_id], map: "idx_demo_favorite_instruments_instrument")
 }
 
 model demo_price_cache {
@@ -506,5 +556,6 @@ model users {
   user_quiz_attempts    user_quiz_attempts[]
   user_scenario_runs    user_scenario_runs[]
   user_settings         user_settings?
-  demo_accounts         demo_accounts?
+  demo_accounts         demo_accounts[]
+  demo_favorite_instruments demo_favorite_instruments[]
 }

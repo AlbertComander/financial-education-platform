@@ -4,11 +4,14 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 function toJsonSafe(value: unknown): unknown {
   if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  if (Prisma.Decimal.isDecimal(value)) return value.toString();
 
   if (Array.isArray(value)) return value.map(toJsonSafe);
 

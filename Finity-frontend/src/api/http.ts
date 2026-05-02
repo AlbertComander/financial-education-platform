@@ -38,13 +38,25 @@ export async function httpRequest<T>(path: string, options: HttpRequestOptions =
   })
 
   const text = await response.text()
-  const data = text.length > 0 ? (JSON.parse(text) as unknown) : null
+  let data: unknown = null
+  if (text.length > 0) {
+    try {
+      data = JSON.parse(text) as unknown
+    } catch {
+      data = text
+    }
+  }
 
   if (!response.ok) {
-    const message =
+    const rawMessage =
       typeof data === 'object' && data !== null && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `Request failed with status ${response.status}`
+        ? (data as { message: unknown }).message
+        : null
+    const message = Array.isArray(rawMessage)
+      ? rawMessage.join(', ')
+      : typeof rawMessage === 'string' && rawMessage.length > 0
+        ? rawMessage
+        : `Запрос завершился ошибкой ${response.status}`
 
     throw new ApiError(response.status, message)
   }

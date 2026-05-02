@@ -32,6 +32,7 @@ const auth = useAuthStore()
 const userStore = useUserStore()
 const learningStore = useLearningStore()
 const toolsExpanded = ref(false)
+const demoAccountExpanded = ref(false)
 
 const sidebarIconMap = {
   login: iconLogin,
@@ -61,19 +62,10 @@ const primaryLinks = computed(() => {
     return []
   }
 
-  return [
+  const links = [
     { name: 'Профиль', to: '/profile', iconKey: 'profile' },
     { name: 'Обучение', to: '/learning', iconKey: 'learning' },
-    { name: 'Демо-счет', to: '/demo-account', iconKey: 'demoAccount' },
   ]
-})
-
-const secondaryLinks = computed(() => {
-  if (!auth.isAuthenticated) {
-    return []
-  }
-
-  const links = [{ name: 'Настройки', to: '/settings', iconKey: 'settings' }]
 
   if (auth.user?.role === 'admin') {
     links.push({
@@ -86,8 +78,37 @@ const secondaryLinks = computed(() => {
   return links
 })
 
+const demoAccountAdminLinks = computed(() => {
+  if (!auth.isAuthenticated || auth.user?.role !== 'admin') {
+    return []
+  }
+
+  return [
+    {
+      name: 'Активы',
+      to: '/admin/instruments',
+      iconKey: 'demoAccount',
+    },
+  ]
+})
+
+const secondaryLinks = computed(() => {
+  if (!auth.isAuthenticated) {
+    return []
+  }
+
+  return [{ name: 'Настройки', to: '/settings', iconKey: 'settings' }]
+})
+
 const toolLinks = computed(() => interactiveToolLinks)
 const isToolsSectionActive = computed(() => route.path === '/tools' || route.path.startsWith('/tools/'))
+const isDemoAccountSectionActive = computed(() => route.path === '/demo-account' || route.path.startsWith('/demo-account/'))
+const demoAccountLinks = [
+  { name: 'Обзор', shortName: 'Обзор', to: '/demo-account?tab=overview', tab: 'overview' },
+  { name: 'Каталог', shortName: 'Каталог', to: '/demo-account?tab=catalog', tab: 'catalog' },
+  { name: 'Аналитика', shortName: 'Аналитика', to: '/demo-account?tab=analytics', tab: 'analytics' },
+  { name: 'События', shortName: 'События', to: '/demo-account?tab=events', tab: 'events' },
+]
 
 const avatarUrl = computed(() => {
   const value = userStore.profile?.base_params?.avatar_data_url
@@ -131,12 +152,31 @@ function toggleToolsSection(event: MouseEvent) {
   }
 }
 
+function toggleDemoAccountSection(event: MouseEvent) {
+  if (!props.open) {
+    emit('update:open', true)
+    demoAccountExpanded.value = true
+  } else {
+    demoAccountExpanded.value = !demoAccountExpanded.value
+  }
+
+  if (event.detail > 0) {
+    const button = event.currentTarget as HTMLButtonElement | null
+    button?.blur()
+  }
+}
+
 function isLinkActive(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`)
 }
 
 function isToolLinkActive(path: string) {
   return route.path === path
+}
+
+function isDemoAccountLinkActive(tab: string) {
+  const currentTab = typeof route.query.tab === 'string' ? route.query.tab : 'overview'
+  return isDemoAccountSectionActive.value && currentTab === tab
 }
 
 async function onLogout() {
@@ -166,6 +206,16 @@ watch(
   (active) => {
     if (active) {
       toolsExpanded.value = true
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  isDemoAccountSectionActive,
+  (active) => {
+    if (active) {
+      demoAccountExpanded.value = true
     }
   },
   { immediate: true },
@@ -221,6 +271,56 @@ onMounted(() => {
       <template v-if="auth.isAuthenticated">
         <RouterLink
           v-for="link in primaryLinks"
+          :key="link.to"
+          :to="link.to"
+          class="app-sidebar__link"
+          :class="{ 'app-sidebar__link--active': isLinkActive(link.to), 'app-sidebar__link--compact': !props.open }"
+          :title="!props.open ? link.name : undefined"
+        >
+          <span class="app-sidebar__icon" :style="{ '--sidebar-icon': iconMask(link.iconKey) }" aria-hidden="true" />
+          <span class="app-sidebar__label" :class="{ 'app-sidebar__label--hidden': !props.open }">
+            {{ link.name }}
+          </span>
+        </RouterLink>
+
+        <div class="app-sidebar__section" :class="{ 'app-sidebar__section--active': isDemoAccountSectionActive }">
+          <button
+            type="button"
+            class="app-sidebar__section-trigger"
+            :class="{
+              'app-sidebar__section-trigger--active': isDemoAccountSectionActive,
+              'app-sidebar__section-trigger--compact': !props.open,
+            }"
+            :title="!props.open ? 'Демо-счет' : undefined"
+            @click="toggleDemoAccountSection"
+          >
+            <span class="app-sidebar__icon" :style="{ '--sidebar-icon': iconMask('demoAccount') }" aria-hidden="true" />
+            <span class="app-sidebar__section-label" :class="{ 'app-sidebar__section-label--hidden': !props.open }">
+              Демо-счет
+            </span>
+            <ChevronDown
+              v-if="props.open"
+              class="app-sidebar__section-chevron"
+              :class="{ 'app-sidebar__section-chevron--open': demoAccountExpanded }"
+            />
+          </button>
+
+          <div v-if="props.open && demoAccountExpanded" class="app-sidebar__section-list">
+            <RouterLink
+              v-for="item in demoAccountLinks"
+              :key="item.tab"
+              :to="item.to"
+              class="app-sidebar__section-item"
+              :class="{ 'app-sidebar__section-item--active': isDemoAccountLinkActive(item.tab) }"
+            >
+              <span class="app-sidebar__section-marker" aria-hidden="true" />
+              <span class="app-sidebar__section-item-label">{{ item.shortName }}</span>
+            </RouterLink>
+          </div>
+        </div>
+
+        <RouterLink
+          v-for="link in demoAccountAdminLinks"
           :key="link.to"
           :to="link.to"
           class="app-sidebar__link"

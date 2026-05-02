@@ -13,6 +13,7 @@ const LessonView = () => import('@/views/LessonView.vue')
 const LessonTestResultView = () => import('@/views/LessonTestResultView.vue')
 const QuizView = () => import('@/views/QuizView.vue')
 const AdminLearningView = () => import('@/views/AdminLearningView.vue')
+const AdminDemoInstrumentsView = () => import('@/views/AdminDemoInstrumentsView.vue')
 const ToolsView = () => import('@/views/ToolsView.vue')
 const DemoAccountView = () => import('@/views/DemoAccountView.vue')
 
@@ -87,6 +88,12 @@ const router = createRouter({
       path: '/admin/learning',
       name: 'admin-learning',
       component: AdminLearningView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/instruments',
+      name: 'admin-instruments',
+      component: AdminDemoInstrumentsView,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
